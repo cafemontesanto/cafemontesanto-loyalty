@@ -532,8 +532,11 @@ body {
         <div style="font-size:2.4rem;color:var(--guindo);font-weight:200;line-height:1" id="found-count">0</div>
         <div style="font-size:.78rem;color:var(--muted);font-weight:200">sellos actuales<br><span id="found-goal-lbl"></span></div>
       </div>
-      <button class="btn btn-primary" id="btn-add-stamp" onclick="addStampToClient()">+ Agregar sello</button>
-      <button class="btn btn-secondary" onclick="clearFound()">Cancelar</button>
+      <div style="display:flex;gap:8px;margin-bottom:0">
+        <button class="btn btn-primary" id="btn-add-stamp" onclick="addStampToClient()" style="margin-top:0;flex:1">+ Agregar</button>
+        <button class="btn btn-danger" id="btn-remove-stamp" onclick="removeStampFromClient()" style="margin-top:0;flex:1">− Quitar</button>
+      </div>
+      <button class="btn btn-secondary" onclick="clearFound()" style="margin-top:8px">Cancelar</button>
     </div>
   </div>
 
@@ -638,10 +641,32 @@ function goTo(viewId){
   window.scrollTo(0,0);
 }
 
+// ── Config en Firestore ─────────────────────────────
+async function loadConfigFromDB(){
+  if(isFirebase()){
+    const { db, doc, getDoc } = window._fb;
+    try {
+      const snap = await getDoc(doc(db(),'config','settings'));
+      if(snap.exists()) cfg = { ...cfg, ...snap.data() };
+    } catch(e){ console.warn('Error cargando config:', e); }
+  } else {
+    cfg = { ...cfg, ...LS.config() };
+  }
+}
+
+async function saveConfigToDB(){
+  if(isFirebase()){
+    const { db, doc, setDoc } = window._fb;
+    await setDoc(doc(db(),'config','settings'), {
+      goal: cfg.goal, reward: cfg.reward, cafeName: cfg.cafeName
+    });
+  }
+  LS.saveConfig(cfg); // PIN siempre local
+}
+
 // ── Init ────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
-  const stored = LS.config();
-  cfg = { ...cfg, ...stored };
+  await loadConfigFromDB();
   if(!isFirebase()) document.getElementById('setup-warning').style.display='block';
   const savedPhone = localStorage.getItem('ms_current');
   if(savedPhone){
@@ -835,7 +860,9 @@ function showFoundClient(){
   document.getElementById('found-card').style.display='block';
   const btn = document.getElementById('btn-add-stamp');
   btn.disabled = foundClient.stamps >= cfg.goal;
-  btn.textContent = foundClient.stamps>=cfg.goal ? '¡Tarjeta completada!' : '+ Agregar sello';
+  btn.textContent = foundClient.stamps>=cfg.goal ? '¡Completada!' : '+ Agregar';
+  const btnR = document.getElementById('btn-remove-stamp');
+  btnR.disabled = foundClient.stamps <= 0;
 }
 
 function clearFound(){
@@ -850,6 +877,16 @@ async function addStampToClient(){
   foundClient = await saveClientData(foundClient);
   showFoundClient();
   toast(`✓ Sello agregado a ${foundClient.name} (${foundClient.stamps}/${cfg.goal})`);
+  if(currentClient && currentClient.id===foundClient.id) currentClient=foundClient;
+}
+
+async function removeStampFromClient(){
+  if(!foundClient||foundClient.stamps<=0) return;
+  if(!confirm(`¿Quitar 1 sello a ${foundClient.name}? Sellos actuales: ${foundClient.stamps}`)) return;
+  foundClient.stamps--;
+  foundClient = await saveClientData(foundClient);
+  showFoundClient();
+  toast(`↩ Sello eliminado de ${foundClient.name} (${foundClient.stamps}/${cfg.goal})`);
   if(currentClient && currentClient.id===foundClient.id) currentClient=foundClient;
 }
 
@@ -878,18 +915,19 @@ async function loadClients(){
 }
 
 // ── Config ───────────────────────────────────────────
-function loadConfig(){
+async function loadConfig(){
+  await loadConfigFromDB();
   document.getElementById('cfg-goal').value     = cfg.goal;
   document.getElementById('cfg-reward').value   = cfg.reward;
   document.getElementById('cfg-cafename').value = cfg.cafeName||'Café Montesanto';
 }
-function saveConfig(){
+async function saveConfig(){
   cfg.goal     = Math.max(1,parseInt(document.getElementById('cfg-goal').value)||10);
   cfg.reward   = document.getElementById('cfg-reward').value.trim()||'Café gratis';
   cfg.cafeName = document.getElementById('cfg-cafename').value.trim()||'Café Montesanto';
-  LS.saveConfig(cfg);
+  await saveConfigToDB();
   if(currentClient) renderCard();
-  toast('Configuración guardada');
+  toast('Configuración guardada ✓');
 }
 function changePin(){
   const p = document.getElementById('cfg-pin').value;
