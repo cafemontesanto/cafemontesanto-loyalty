@@ -13,6 +13,8 @@
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js';
   import { getFirestore, doc, getDoc, setDoc, collection, getDocs, serverTimestamp }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+    from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
 
   const firebaseConfig = {
     apiKey:            "AIzaSyDAZqgKvoFMWWVgXb0Kq9AgrxlciaTeWUI",
@@ -33,7 +35,14 @@
   } catch(e) {
     console.warn('Firebase no configurado — modo demo local');
   }
-  window._fb = { ready: () => firebaseReady, db: () => db, doc, getDoc, setDoc, collection, getDocs, serverTimestamp };
+  const auth = getAuth(app);
+  window._fb = {
+    ready: () => firebaseReady,
+    db: () => db,
+    auth: () => auth,
+    doc, getDoc, setDoc, collection, getDocs, serverTimestamp,
+    signInWithEmailAndPassword, signOut, onAuthStateChanged
+  };
 </script>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -571,25 +580,43 @@ body {
     </div>
     <div class="card">
       <div class="sec-lbl">Seguridad</div>
-      <div class="field">
-        <label>Nuevo PIN del cajero (4 dígitos)</label>
-        <input id="cfg-pin" type="password" maxlength="4" placeholder="••••" inputmode="numeric"/>
+      <div style="font-size:.78rem;color:var(--muted);font-weight:200;line-height:1.6">
+        El acceso está protegido por <strong style="font-weight:400;color:var(--guindo)">Firebase Authentication</strong>.<br>
+        Para cambiar la contraseña, ve a la consola de Firebase → Authentication → Users.
       </div>
-      <button class="btn btn-secondary" onclick="changePin()">Cambiar PIN</button>
     </div>
   </div>
 
-  <button class="btn btn-secondary" style="max-width:400px;width:100%;margin-top:14px" onclick="goTo('view-register')">Salir del panel</button>
+  <button class="btn btn-secondary" style="max-width:400px;width:100%;margin-top:14px" onclick="doLogoutStaff()">Cerrar sesión</button>
 </div>
 
 <!-- ════════════════════════════════════════════
-     VIEW 4: PIN
+     VIEW 4: LOGIN CAJERO
 ════════════════════════════════════════════ -->
 <div class="view" id="view-pin">
   <div class="brand">
     <img class="brand-logo" src="data:image/png;base64,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" alt="Café Montesanto"/>
     <div class="brand-sub">Acceso del Cajero</div>
   </div>
+  <div class="card" style="max-width:360px;width:100%">
+    <div class="sec-lbl">Iniciar sesión</div>
+    <div class="field">
+      <label>Correo electrónico</label>
+      <input id="login-email" type="email" placeholder="cajero@cafemontesanto.com"
+        autocomplete="email" inputmode="email"/>
+    </div>
+    <div class="field">
+      <label>Contraseña</label>
+      <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password"/>
+    </div>
+    <div id="login-error" style="font-size:.75rem;color:#b05030;text-align:center;min-height:1.2em;margin-top:4px;font-weight:200"></div>
+    <button class="btn btn-primary" id="btn-login" onclick="doLogin()">Entrar →</button>
+    <button class="btn btn-secondary" onclick="goTo('view-register')" style="margin-top:8px">Cancelar</button>
+    <div style="margin-top:14px;font-size:.7rem;color:var(--muted);text-align:center;font-weight:200;line-height:1.5">
+      Solo el administrador puede acceder.<br>Acceso protegido por Firebase Authentication.
+    </div>
+  </div>
+</div>
   <div class="card" style="max-width:360px;width:100%">
     <div class="sec-lbl">Ingresa el PIN</div>
     <div class="field">
@@ -789,16 +816,51 @@ function renderCard(){
   document.getElementById('qr-phone-label').textContent = phone;
 }
 
-// ── PIN ─────────────────────────────────────────────
-function checkPin(){
-  const input = document.getElementById('pin-input').value;
-  if(input === cfg.pin){
-    document.getElementById('pin-input').value='';
-    goTo('view-staff'); staffTab('scan'); loadConfig();
-  } else {
-    toast('PIN incorrecto');
-    document.getElementById('pin-input').value='';
+// ── Login Firebase Auth ──────────────────────────────
+async function doLogin(){
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  const btn   = document.getElementById('btn-login');
+  if(!email || !pass){ errEl.textContent='Ingresa correo y contraseña'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Verificando…';
+  errEl.textContent = '';
+
+  if(!isFirebase()){
+    // Modo demo: acepta admin@cafe.com / admin1234
+    if(email==='admin@cafe.com' && pass==='admin1234'){
+      btn.disabled=false; btn.textContent='Entrar →';
+      goTo('view-staff'); staffTab('scan'); loadConfig();
+    } else {
+      errEl.textContent='Credenciales incorrectas';
+      btn.disabled=false; btn.textContent='Entrar →';
+    }
+    return;
   }
+
+  try {
+    const { auth, signInWithEmailAndPassword } = window._fb;
+    await signInWithEmailAndPassword(auth(), email, pass);
+    btn.disabled=false; btn.textContent='Entrar →';
+    document.getElementById('login-email').value='';
+    document.getElementById('login-password').value='';
+    goTo('view-staff'); staffTab('scan'); await loadConfig();
+  } catch(e) {
+    let msg = 'Correo o contraseña incorrectos';
+    if(e.code==='auth/too-many-requests') msg='Demasiados intentos. Espera un momento.';
+    errEl.textContent = msg;
+    btn.disabled=false; btn.textContent='Entrar →';
+  }
+}
+
+async function doLogoutStaff(){
+  if(isFirebase()){
+    const { auth, signOut } = window._fb;
+    await signOut(auth());
+  }
+  goTo('view-register');
 }
 
 // ── Tabs cajero ─────────────────────────────────────
@@ -929,13 +991,7 @@ async function saveConfig(){
   if(currentClient) renderCard();
   toast('Configuración guardada ✓');
 }
-function changePin(){
-  const p = document.getElementById('cfg-pin').value;
-  if(!p||p.length!==4||!/^\d{4}$/.test(p)){ toast('El PIN debe ser de 4 dígitos'); return; }
-  cfg.pin=p; LS.saveConfig(cfg);
-  document.getElementById('cfg-pin').value='';
-  toast('PIN actualizado');
-}
+// PIN eliminado — ahora se usa Firebase Authentication
 
 // ── Toast ─────────────────────────────────────────────
 let toastTimer;
