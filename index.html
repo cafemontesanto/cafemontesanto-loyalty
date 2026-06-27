@@ -186,6 +186,13 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
       <label>WhatsApp / Teléfono</label>
       <input id="reg-phone" type="tel" placeholder="+591 7XX XXXXX" autocomplete="tel"/>
     </div>
+    <div class="field">
+      <label>Fecha de cumpleaños 🎂</label>
+      <input id="reg-bday" type="date" style="color:var(--guindo-dk)"/>
+      <div style="font-size:.65rem;color:var(--muted);font-weight:200;margin-top:4px">
+        Para celebrar contigo ese día especial
+      </div>
+    </div>
     <button class="btn btn-primary" onclick="registerClient()">Obtener mi tarjeta →</button>
     <button class="btn btn-secondary" onclick="loginClient()">Ya tengo tarjeta</button>
   </div>
@@ -212,6 +219,11 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
     <div class="progress-track"><div class="progress-fill" id="card-progress" style="width:0%"></div></div>
     <div class="reward-banner" id="card-banner">🎉 ¡Tu siguiente consumo tiene descuento!</div>
     <div class="reward-msg" id="card-msg">Muestra tu QR al cajero en cada visita</div>
+    <div id="card-bday-row" style="display:none;align-items:center;gap:8px;
+      margin-bottom:4px;padding:10px 14px;background:var(--cream);border-radius:10px">
+      <span style="font-size:1.1rem">🎂</span>
+      <span id="card-bday-txt" style="font-size:.78rem;color:var(--guindo);font-weight:200"></span>
+    </div>
     <div class="qr-box">
       <p>Mi código QR</p>
       <div id="qr-canvas"></div>
@@ -233,6 +245,7 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
   <div class="nav-pills">
     <button class="nav-pill active" id="tab-scan"    onclick="staffTab('scan')">Escanear</button>
     <button class="nav-pill"        id="tab-clients" onclick="staffTab('clients')">Clientes</button>
+    <button class="nav-pill"        id="tab-bdays"   onclick="staffTab('bdays')">🎂</button>
     <button class="nav-pill"        id="tab-config"  onclick="staffTab('config')">Config</button>
   </div>
 
@@ -271,6 +284,21 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
     </div>
     <div class="client-list" id="client-list">
       <div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Cargando…</div>
+    </div>
+  </div>
+
+  <!-- Cumpleaños -->
+  <div id="staff-bdays" style="width:100%;display:none;flex-direction:column;align-items:center">
+    <div style="width:100%;max-width:400px;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div class="sec-lbl" style="margin:0">Cumpleaños del mes</div>
+      <button onclick="loadBdays()"
+        style="background:var(--cream-dk);color:var(--guindo);border:none;border-radius:9px;
+        padding:7px 14px;font-family:var(--font);font-size:.75rem;cursor:pointer">↻ Actualizar</button>
+    </div>
+    <div id="bday-this-month" style="width:100%;max-width:400px"></div>
+    <div style="width:100%;max-width:400px;margin-top:18px">
+      <div class="sec-lbl">Próximos cumpleaños</div>
+      <div id="bday-upcoming" style="width:100%"></div>
     </div>
   </div>
 
@@ -402,7 +430,7 @@ async function getClient(phone){
 
 async function saveClient(c){
   const key = c.id || c.phone.replace(/\D/g,'');
-  const data = {name:c.name,phone:c.phone,stamps:c.stamps,since:c.since};
+  const data = {name:c.name,phone:c.phone,stamps:c.stamps,since:c.since,bday:c.bday||''};
   if(fb()){
     await setDoc(doc('clients',key),{...data,updated:fb().serverTimestamp()},{merge:true});
   } else {
@@ -433,13 +461,18 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 async function registerClient(){
   const name  = document.getElementById('reg-name').value.trim();
   const phone = document.getElementById('reg-phone').value.trim();
+  const bday  = document.getElementById('reg-bday').value; // formato YYYY-MM-DD
   if(!name||!phone){ toast('Completa nombre y teléfono'); return; }
   const key = phone.replace(/\D/g,'');
   if(key.length<7){ toast('Teléfono inválido'); return; }
   let c = await getClient(phone);
   if(!c){
     const since = new Date().toLocaleDateString('es',{year:'numeric',month:'long'});
-    c = await saveClient({id:key,name,phone,stamps:0,since});
+    c = await saveClient({id:key,name,phone,stamps:0,since,bday:bday||''});
+  } else if(bday && !c.bday){
+    // Si ya existe pero no tenía bday, lo actualizamos
+    c.bday = bday;
+    c = await saveClient(c);
   }
   currentClient = c;
   localStorage.setItem('ms_current',phone);
@@ -493,6 +526,23 @@ function renderCard(){
     msg.className='reward-msg';
   }
 
+  // Cumpleaños en tarjeta
+  const bdayRow = document.getElementById('card-bday-row');
+  const bdayTxt = document.getElementById('card-bday-txt');
+  if(currentClient.bday){
+    const [y,m,d] = currentClient.bday.split('-');
+    const months = ['enero','febrero','marzo','abril','mayo','junio',
+                    'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const today = new Date();
+    const isBday = parseInt(m)===today.getMonth()+1 && parseInt(d)===today.getDate();
+    bdayTxt.textContent = isBday
+      ? '¡Hoy es tu cumpleaños! 🎉 Feliz día de parte de Café Montesanto'
+      : 'Tu cumpleaños: '+parseInt(d)+' de '+months[parseInt(m)-1];
+    bdayRow.style.display='flex';
+  } else {
+    bdayRow.style.display='none';
+  }
+
   const qrDiv=document.getElementById('qr-canvas');
   qrDiv.innerHTML='';
   if(qrInstance){try{qrInstance.clear();}catch(e){}}
@@ -538,13 +588,15 @@ async function doLogout(){
 
 // ── Tabs cajero ─────────────────────────────────────
 function staffTab(tab){
-  ['scan','clients','config'].forEach(t=>{
+  ['scan','clients','bdays','config'].forEach(t=>{
     document.getElementById('staff-'+t).style.display='none';
     document.getElementById('tab-'+t).classList.remove('active');
   });
-  document.getElementById('staff-'+tab).style.display = tab==='clients'?'flex':'block';
+  const flexTabs = ['clients','bdays'];
+  document.getElementById('staff-'+tab).style.display = flexTabs.includes(tab)?'flex':'block';
   document.getElementById('tab-'+tab).classList.add('active');
   if(tab==='clients') loadClients();
+  if(tab==='bdays')   loadBdays();
   if(tab==='config')  showConfig();
   if(tab!=='scan')    stopScanner();
 }
@@ -649,6 +701,97 @@ async function saveConfig(){
   cfg.reward = document.getElementById('cfg-reward').value.trim()||'14% de descuento';
   await saveCfg();
   toast('Configuración guardada ✓');
+}
+
+// ── Cumpleaños ───────────────────────────────────────
+async function loadBdays(){
+  const thisEl     = document.getElementById('bday-this-month');
+  const upcomingEl = document.getElementById('bday-upcoming');
+  thisEl.innerHTML     = '<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:12px;font-weight:200">Cargando…</div>';
+  upcomingEl.innerHTML = '';
+
+  const clients = await getAllClients();
+  const withBday = clients.filter(c=>c.bday);
+  if(!withBday.length){
+    thisEl.innerHTML='<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:12px;font-weight:200">Ningún cliente ha registrado su cumpleaños aún</div>';
+    return;
+  }
+
+  const today  = new Date();
+  const todayM = today.getMonth()+1;
+  const todayD = today.getDate();
+  const months = ['enero','febrero','marzo','abril','mayo','junio',
+                  'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+  // Enriquecer con datos de fecha
+  const enriched = withBday.map(c=>{
+    const [y,m,d] = c.bday.split('-').map(Number);
+    const isToday = m===todayM && d===todayD;
+    const isThisMonth = m===todayM;
+    // días hasta cumpleaños este año
+    const next = new Date(today.getFullYear(), m-1, d);
+    if(next < today && !isToday) next.setFullYear(today.getFullYear()+1);
+    const daysUntil = Math.round((next-today)/(1000*60*60*24));
+    return {...c, bdayMonth:m, bdayDay:d, isToday, isThisMonth, daysUntil};
+  });
+
+  // HOY
+  const todayBdays = enriched.filter(c=>c.isToday);
+  // Este mes (sin hoy)
+  const thisMonth  = enriched.filter(c=>c.isThisMonth && !c.isToday).sort((a,b)=>a.bdayDay-b.bdayDay);
+  // Próximos 30 días (sin este mes)
+  const upcoming   = enriched.filter(c=>!c.isThisMonth && c.daysUntil<=30).sort((a,b)=>a.daysUntil-b.daysUntil);
+
+  const cardStyle = `background:var(--cream-lt);border-radius:14px;padding:14px 16px;
+    display:flex;justify-content:space-between;align-items:center;
+    box-shadow:0 3px 12px rgba(92,43,62,.15);margin-bottom:10px`;
+
+  let thisHTML = '';
+
+  if(todayBdays.length){
+    thisHTML += todayBdays.map(c=>`
+      <div style="${cardStyle};border:2px solid var(--guindo)">
+        <div>
+          <div style="font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--guindo);font-weight:200;margin-bottom:2px">🎉 ¡HOY!</div>
+          <div style="font-size:.95rem;color:var(--guindo);font-weight:400">${c.name}</div>
+          <div style="font-size:.72rem;color:var(--muted);font-weight:200">${c.phone}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:1.6rem">🎂</div>
+          <div style="font-size:.65rem;color:var(--muted);font-weight:200">${parseInt(c.bdayDay)} de ${months[c.bdayMonth-1]}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  if(thisMonth.length){
+    thisHTML += thisMonth.map(c=>`
+      <div style="${cardStyle}">
+        <div>
+          <div style="font-size:.95rem;color:var(--guindo);font-weight:400">${c.name}</div>
+          <div style="font-size:.72rem;color:var(--muted);font-weight:200">${c.phone}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:1rem;color:var(--guindo);font-weight:200">${parseInt(c.bdayDay)}</div>
+          <div style="font-size:.65rem;color:var(--muted);font-weight:200">de ${months[c.bdayMonth-1]}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  thisEl.innerHTML = thisHTML ||
+    '<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:12px;font-weight:200">Sin cumpleaños este mes</div>';
+
+  upcomingEl.innerHTML = upcoming.length ? upcoming.map(c=>`
+    <div style="${cardStyle}">
+      <div>
+        <div style="font-size:.95rem;color:var(--guindo);font-weight:400">${c.name}</div>
+        <div style="font-size:.72rem;color:var(--muted);font-weight:200">${c.phone}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:.85rem;color:var(--guindo);font-weight:200">en ${c.daysUntil} días</div>
+        <div style="font-size:.65rem;color:var(--muted);font-weight:200">${parseInt(c.bdayDay)} de ${months[c.bdayMonth-1]}</div>
+      </div>
+    </div>`).join('')
+    : '<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:12px;font-weight:200">Sin cumpleaños en los próximos 30 días</div>';
 }
 
 // ── Toast ────────────────────────────────────────────
