@@ -421,18 +421,26 @@ function goTo(id){
 async function loadCfg(){
   if(fb()){
     try{
-      const snap = await getDoc(doc(fb().db,'config','settings'));
+      // Usar fb().doc y fb().getDoc directamente — sin pasar db dos veces
+      const ref  = fb().doc(fb().db, 'config', 'settings');
+      const snap = await fb().getDoc(ref);
       if(snap.exists()){
         const data = snap.data();
-        // Firestore manda — sobreescribe todo sin mezclar con defaults locales
         if(data.goal)   cfg.goal   = data.goal;
         if(data.reward) cfg.reward = data.reward;
-        console.log('Config cargada desde Firestore:', cfg.goal, cfg.reward);
+        console.log('Config OK:', cfg.goal, cfg.reward);
       } else {
-        console.log('No hay config en Firestore aún, usando defaults');
+        console.log('Sin config en Firestore, guardando defaults ahora');
+        // Crear el documento con los valores actuales para que exista
+        const ref2 = fb().doc(fb().db, 'config', 'settings');
+        await fb().setDoc(ref2, { goal: cfg.goal, reward: cfg.reward });
       }
     }catch(e){
-      console.error('Error cargando config:', e);
+      console.error('Error cargando config:', e.code, e.message);
+      // Intentar desde localStorage como respaldo
+      const stored = LS.cfg();
+      if(stored.goal)   cfg.goal   = stored.goal;
+      if(stored.reward) cfg.reward = stored.reward;
     }
   } else {
     const stored = LS.cfg();
@@ -453,11 +461,14 @@ async function saveCfg(){
     }
 
     try{
-      await fb().setDoc(
-        fb().doc(fb().db,'config','settings'),
-        { goal: cfg.goal, reward: cfg.reward }
-      );
-      console.log('Config guardada en Firestore:', cfg.goal, cfg.reward);
+      const ref = fb().doc(fb().db, 'config', 'settings');
+      await fb().setDoc(ref, { goal: cfg.goal, reward: cfg.reward });
+      console.log('Config guardada OK:', cfg.goal, cfg.reward);
+      // Verificar inmediatamente que se guardó
+      const verify = await fb().getDoc(ref);
+      if(verify.exists()){
+        console.log('Verificado en Firestore:', verify.data());
+      }
     }catch(e){
       console.error('Error guardando config:', e.code, e.message);
       throw e;
@@ -468,9 +479,7 @@ async function saveCfg(){
 }
 
 // ── Firebase shortcuts ──────────────────────────────
-function doc(...a)   { return fb().doc(fb().db,...a); }
-function getDoc(...a){ return fb().getDoc(...a); }
-function setDoc(...a){ return fb().setDoc(...a); }
+// Todas las llamadas a Firebase usan fb().método() directamente
 function currentUser(){ return fb() ? fb().currentUser : null; }
 
 // ── Client data ─────────────────────────────────────
@@ -478,7 +487,8 @@ async function getClient(phone){
   const key = phone.replace(/\D/g,'');
   if(fb()){
     try {
-      const snap = await getDoc(doc('clients',key));
+      const ref  = fb().doc(fb().db, 'clients', key);
+      const snap = await fb().getDoc(ref);
       return snap.exists() ? {id:key,...snap.data()} : null;
     } catch(e) {
       console.error('Error leyendo cliente:', e.code, e.message);
@@ -494,7 +504,8 @@ async function saveClient(c){
   const data = {name:c.name,phone:c.phone,stamps:c.stamps,since:c.since,bday:c.bday||''};
   if(fb()){
     try {
-      await setDoc(doc('clients',key),{...data,updated:fb().serverTimestamp()},{merge:true});
+      const ref = fb().doc(fb().db, 'clients', key);
+      await fb().setDoc(ref, {...data, updated:fb().serverTimestamp()}, {merge:true});
     } catch(e) {
       console.error('Error guardando cliente:', e.code, e.message);
       if(e.code==='permission-denied'){
@@ -510,8 +521,14 @@ async function saveClient(c){
 
 async function getAllClients(){
   if(fb()){
-    const snap = await fb().getDocs(fb().collection(fb().db,'clients'));
-    return snap.docs.map(d=>({id:d.id,...d.data()}));
+    try {
+      const ref  = fb().collection(fb().db,'clients');
+      const snap = await fb().getDocs(ref);
+      return snap.docs.map(d=>({id:d.id,...d.data()}));
+    } catch(e) {
+      console.error('Error cargando clientes:', e.code, e.message);
+      return [];
+    }
   }
   return Object.entries(LS.clients()).map(([k,v])=>({id:k,...v}));
 }
