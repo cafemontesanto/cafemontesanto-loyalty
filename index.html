@@ -16,6 +16,21 @@
   import { getAuth, signInWithEmailAndPassword, signOut }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
 
+  // ══ REGLAS FIRESTORE REQUERIDAS ══════════════════════════
+  // rules_version = '2';
+  // service cloud.firestore {
+  //   match /databases/{database}/documents {
+  //     match /clients/{clientId} {
+  //       allow read, write: if true;
+  //     }
+  //     match /config/{docId} {
+  //       allow read: if true;
+  //       allow write: if request.auth != null;
+  //     }
+  //   }
+  // }
+  // ═══════════════════════════════════════════════════════════
+
   const firebaseConfig = {
     apiKey:            "AIzaSyDAZqgKvoFMWWVgXb0Kq9AgrxlciaTeWUI",
     authDomain:        "cafemontesanto.firebaseapp.com",
@@ -398,18 +413,40 @@ async function loadCfg(){
   if(fb()){
     try{
       const snap = await getDoc(doc(fb().db,'config','settings'));
-      if(snap.exists()) cfg = {...cfg,...snap.data()};
-    }catch(e){}
+      if(snap.exists()){
+        const data = snap.data();
+        // Firestore manda — sobreescribe todo sin mezclar con defaults locales
+        if(data.goal)   cfg.goal   = data.goal;
+        if(data.reward) cfg.reward = data.reward;
+        console.log('Config cargada desde Firestore:', cfg.goal, cfg.reward);
+      } else {
+        console.log('No hay config en Firestore aún, usando defaults');
+      }
+    }catch(e){
+      console.error('Error cargando config:', e);
+    }
   } else {
-    cfg = {...cfg,...LS.cfg()};
+    const stored = LS.cfg();
+    if(stored.goal)   cfg.goal   = stored.goal;
+    if(stored.reward) cfg.reward = stored.reward;
   }
 }
 
 async function saveCfg(){
   if(fb()){
-    try{ await setDoc(doc(fb().db,'config','settings'),{goal:cfg.goal,reward:cfg.reward}); }catch(e){}
+    try{
+      await setDoc(doc(fb().db,'config','settings'),{
+        goal:   cfg.goal,
+        reward: cfg.reward
+      });
+      console.log('Config guardada en Firestore:', cfg.goal, cfg.reward);
+    }catch(e){
+      console.error('Error guardando config en Firestore:', e);
+      throw e;
+    }
   }
-  LS.saveCfg(cfg);
+  // Siempre guardar localmente como respaldo
+  LS.saveCfg({goal:cfg.goal, reward:cfg.reward});
 }
 
 // ── Firebase shortcuts ──────────────────────────────
@@ -421,8 +458,13 @@ function setDoc(...a){ return fb().setDoc(...a); }
 async function getClient(phone){
   const key = phone.replace(/\D/g,'');
   if(fb()){
-    const snap = await getDoc(doc('clients',key));
-    return snap.exists() ? {id:key,...snap.data()} : null;
+    try {
+      const snap = await getDoc(doc('clients',key));
+      return snap.exists() ? {id:key,...snap.data()} : null;
+    } catch(e) {
+      console.error('Error leyendo cliente:', e.code, e.message);
+      throw e;
+    }
   }
   const all = LS.clients();
   return all[key] ? {id:key,...all[key]} : null;
@@ -432,7 +474,15 @@ async function saveClient(c){
   const key = c.id || c.phone.replace(/\D/g,'');
   const data = {name:c.name,phone:c.phone,stamps:c.stamps,since:c.since,bday:c.bday||''};
   if(fb()){
-    await setDoc(doc('clients',key),{...data,updated:fb().serverTimestamp()},{merge:true});
+    try {
+      await setDoc(doc('clients',key),{...data,updated:fb().serverTimestamp()},{merge:true});
+    } catch(e) {
+      console.error('Error guardando cliente:', e.code, e.message);
+      if(e.code==='permission-denied'){
+        throw new Error('Permisos de Firestore incorrectos. Verifica las reglas en Firebase Console.');
+      }
+      throw e;
+    }
   } else {
     const all=LS.clients(); all[key]=data; LS.save(all);
   }
@@ -452,8 +502,20 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCfg();
   const phone = localStorage.getItem('ms_current');
   if(phone){
-    const c = await getClient(phone);
-    if(c){ currentClient=c; renderCard(); goTo('view-card'); }
+    try {
+      const c = await getClient(phone);
+      if(c){
+        currentClient=c;
+        renderCard();
+        goTo('view-card');
+      } else {
+        // Si no existe en DB, limpiar sesión local
+        localStorage.removeItem('ms_current');
+      }
+    } catch(e){
+      // Si hay error de red, mostrar registro normal
+      localStorage.removeItem('ms_current');
+    }
   }
 });
 
@@ -461,34 +523,48 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 async function registerClient(){
   const name  = document.getElementById('reg-name').value.trim();
   const phone = document.getElementById('reg-phone').value.trim();
-  const bday  = document.getElementById('reg-bday').value; // formato YYYY-MM-DD
+  const bday  = document.getElementById('reg-bday').value;
   if(!name||!phone){ toast('Completa nombre y teléfono'); return; }
   const key = phone.replace(/\D/g,'');
   if(key.length<7){ toast('Teléfono inválido'); return; }
-  let c = await getClient(phone);
-  if(!c){
-    const since = new Date().toLocaleDateString('es',{year:'numeric',month:'long'});
-    c = await saveClient({id:key,name,phone,stamps:0,since,bday:bday||''});
-  } else if(bday && !c.bday){
-    // Si ya existe pero no tenía bday, lo actualizamos
-    c.bday = bday;
-    c = await saveClient(c);
+
+  const btn = document.querySelector('#view-register .btn-primary');
+  btn.disabled=true; btn.textContent='Registrando…';
+
+  try {
+    let c = await getClient(phone);
+    if(!c){
+      const since = new Date().toLocaleDateString('es',{year:'numeric',month:'long'});
+      c = await saveClient({id:key,name,phone,stamps:0,since,bday:bday||''});
+    } else if(bday && !c.bday){
+      c.bday = bday;
+      c = await saveClient(c);
+    }
+    currentClient = c;
+    localStorage.setItem('ms_current',phone);
+    renderCard();
+    goTo('view-card');
+  } catch(e) {
+    console.error('Error al registrar:', e);
+    toast('Error al registrar. Verifica tu conexión.');
+  } finally {
+    btn.disabled=false; btn.textContent='Obtener mi tarjeta →';
   }
-  currentClient = c;
-  localStorage.setItem('ms_current',phone);
-  renderCard();
-  goTo('view-card');
 }
 
 async function loginClient(){
   const phone = prompt('Ingresa tu número de teléfono registrado:');
   if(!phone) return;
-  const c = await getClient(phone);
-  if(!c){ toast('Número no encontrado. ¿Ya te registraste?'); return; }
-  currentClient = c;
-  localStorage.setItem('ms_current',phone);
-  renderCard();
-  goTo('view-card');
+  try {
+    const c = await getClient(phone);
+    if(!c){ toast('Número no encontrado. ¿Ya te registraste?'); return; }
+    currentClient = c;
+    localStorage.setItem('ms_current',phone);
+    renderCard();
+    goTo('view-card');
+  } catch(e) {
+    toast('Error de conexión. Intenta de nuevo.');
+  }
 }
 
 // ── Render tarjeta ──────────────────────────────────
@@ -570,7 +646,7 @@ async function doLogin(){
     btn.disabled=false; btn.textContent='Entrar →';
     document.getElementById('login-email').value='';
     document.getElementById('login-pass').value='';
-    await loadCfg();
+    await loadCfg(); // Cargar config actualizada al entrar
     goTo('view-staff');
     staffTab('scan');
   }catch(e){
@@ -697,10 +773,29 @@ function showConfig(){
 }
 
 async function saveConfig(){
-  cfg.goal   = Math.max(1,parseInt(document.getElementById('cfg-goal').value)||10);
-  cfg.reward = document.getElementById('cfg-reward').value.trim()||'14% de descuento';
-  await saveCfg();
-  toast('Configuración guardada ✓');
+  const goalVal   = Math.max(1,parseInt(document.getElementById('cfg-goal').value)||10);
+  const rewardVal = document.getElementById('cfg-reward').value.trim();
+  if(!rewardVal){ toast('Escribe una descripción de la recompensa'); return; }
+
+  const btn = document.querySelector('#staff-config .btn-primary');
+  btn.disabled=true; btn.textContent='Guardando…';
+
+  cfg.goal   = goalVal;
+  cfg.reward = rewardVal;
+
+  try {
+    await saveCfg();
+    toast('Configuración guardada ✓');
+    // Refrescar los campos para confirmar visualmente
+    showConfig();
+  } catch(e) {
+    // Si Firestore falla, revertir en memoria
+    await loadCfg();
+    showConfig();
+    toast('Error al guardar. Verifica tu conexión.');
+  } finally {
+    btn.disabled=false; btn.textContent='Guardar configuración';
+  }
 }
 
 // ── Cumpleaños ───────────────────────────────────────
