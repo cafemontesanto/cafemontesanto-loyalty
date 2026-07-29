@@ -13,7 +13,7 @@
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js';
   import { getFirestore, doc, getDoc, setDoc, collection, getDocs, serverTimestamp }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
-  import { getAuth, signInWithEmailAndPassword, signOut }
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
 
   // ══ REGLAS FIRESTORE REQUERIDAS ══════════════════════════
@@ -41,14 +41,23 @@
   };
 
   try {
-    const app = initializeApp(firebaseConfig);
-    const db  = getFirestore(app);
+    const app  = initializeApp(firebaseConfig);
+    const db   = getFirestore(app);
     const auth = getAuth(app);
+
     window._fb = {
       db, auth,
+      currentUser: null, // se actualiza automáticamente
       doc, getDoc, setDoc, collection, getDocs, serverTimestamp,
-      signInWithEmailAndPassword, signOut
+      signInWithEmailAndPassword, signOut, onAuthStateChanged
     };
+
+    // Escuchar cambios de sesión — mantiene currentUser siempre actualizado
+    onAuthStateChanged(auth, (user) => {
+      window._fb.currentUser = user;
+      console.log(user ? 'Sesión activa: ' + user.email : 'Sin sesión');
+    });
+
     console.log('Firebase OK');
   } catch(e) {
     console.warn('Firebase error:', e);
@@ -434,14 +443,23 @@ async function loadCfg(){
 
 async function saveCfg(){
   if(fb()){
+    // Verificar que hay sesión activa antes de intentar escribir
+    const user = fb().currentUser;
+    console.log('Usuario al guardar:', user ? user.email : 'ninguno');
+
+    if(!user){
+      // Intentar recargar la sesión
+      throw new Error('Sin sesión activa. Vuelve a iniciar sesión.');
+    }
+
     try{
-      await setDoc(doc(fb().db,'config','settings'),{
-        goal:   cfg.goal,
-        reward: cfg.reward
-      });
+      await fb().setDoc(
+        fb().doc(fb().db,'config','settings'),
+        { goal: cfg.goal, reward: cfg.reward }
+      );
       console.log('Config guardada en Firestore:', cfg.goal, cfg.reward);
     }catch(e){
-      console.error('Error guardando config en Firestore:', e);
+      console.error('Error guardando config:', e.code, e.message);
       throw e;
     }
   }
@@ -453,6 +471,7 @@ async function saveCfg(){
 function doc(...a)   { return fb().doc(fb().db,...a); }
 function getDoc(...a){ return fb().getDoc(...a); }
 function setDoc(...a){ return fb().setDoc(...a); }
+function currentUser(){ return fb() ? fb().currentUser : null; }
 
 // ── Client data ─────────────────────────────────────
 async function getClient(phone){
@@ -642,11 +661,12 @@ async function doLogin(){
   if(!email||!pass){ errEl.textContent='Ingresa correo y contraseña'; return; }
   btn.disabled=true; btn.textContent='Verificando…';
   try{
-    await fb().signInWithEmailAndPassword(fb().auth,email,pass);
+    const cred = await fb().signInWithEmailAndPassword(fb().auth,email,pass);
+    fb().currentUser = cred.user; // Asegurar que currentUser queda seteado
     btn.disabled=false; btn.textContent='Entrar →';
     document.getElementById('login-email').value='';
     document.getElementById('login-pass').value='';
-    await loadCfg(); // Cargar config actualizada al entrar
+    await loadCfg();
     goTo('view-staff');
     staffTab('scan');
   }catch(e){
@@ -786,13 +806,17 @@ async function saveConfig(){
   try {
     await saveCfg();
     toast('Configuración guardada ✓');
-    // Refrescar los campos para confirmar visualmente
     showConfig();
   } catch(e) {
-    // Si Firestore falla, revertir en memoria
-    await loadCfg();
-    showConfig();
-    toast('Error al guardar. Verifica tu conexión.');
+    console.error('saveConfig error:', e.message);
+    if(e.message.includes('Sin sesión')){
+      toast('Sesión expirada. Vuelve a iniciar sesión.');
+      setTimeout(()=>{ doLogout(); goTo('view-login'); }, 1500);
+    } else {
+      await loadCfg();
+      showConfig();
+      toast('Error al guardar ('+( e.code||e.message)+')');
+    }
   } finally {
     btn.disabled=false; btn.textContent='Guardar configuración';
   }
