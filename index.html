@@ -11,7 +11,7 @@
 <script type="module">
   import { initializeApp }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js';
-  import { getFirestore, doc, getDoc, setDoc, collection, getDocs, serverTimestamp }
+  import { getFirestore, doc, getDoc, setDoc, collection, getDocs, serverTimestamp, runTransaction }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
   import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
@@ -26,6 +26,9 @@
   //     match /config/{docId} {
   //       allow read: if true;
   //       allow write: if request.auth != null;
+  //     }
+  //     match /giftcards/{code} {
+  //       allow read, write: if request.auth != null;
   //     }
   //   }
   // }
@@ -48,7 +51,7 @@
     window._fb = {
       db, auth,
       currentUser: null, // se actualiza automáticamente
-      doc, getDoc, setDoc, collection, getDocs, serverTimestamp,
+      doc, getDoc, setDoc, collection, getDocs, serverTimestamp, runTransaction,
       signInWithEmailAndPassword, signOut, onAuthStateChanged
     };
 
@@ -186,8 +189,22 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
 .err-msg{font-size:.75rem;color:#8b2020;text-align:center;min-height:1.2em;
   margin-top:4px;font-weight:200}
 
-#scanner-container{width:100%;max-width:320px;border-radius:14px;overflow:hidden;
+.scanner-container{width:100%;max-width:320px;border-radius:14px;overflow:hidden;
   background:#000;margin:14px 0;min-height:240px}
+#gc-qr-canvas,#gc-qr-canvas img,#gc-qr-canvas canvas{width:200px!important;height:200px!important}
+.gc-sub-nav{display:flex;gap:5px;background:rgba(92,43,62,.06);border-radius:99px;
+  padding:4px;margin-bottom:16px;width:100%;max-width:400px}
+.gc-sub-pill{flex:1;padding:8px 10px;border-radius:99px;border:none;font-family:var(--font);
+  font-size:.68rem;font-weight:200;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;
+  transition:background .2s,color .2s;color:var(--muted);background:transparent;
+  -webkit-tap-highlight-color:transparent}
+.gc-sub-pill.active{background:var(--guindo);color:var(--cream)}
+.gc-code-display{font-size:1.5rem;color:var(--guindo);font-weight:400;letter-spacing:.08em;
+  text-align:center;margin-top:4px}
+.gc-status-badge{display:inline-block;font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 9px;border-radius:99px;font-weight:400}
+.gc-status-activa{background:#e6f0e8;color:#2a6b3d}
+.gc-status-usada{background:var(--cream-dk);color:var(--muted)}
 </style>
 </head>
 <body>
@@ -270,6 +287,7 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
     <button class="nav-pill active" id="tab-scan"    onclick="staffTab('scan')">Escanear</button>
     <button class="nav-pill"        id="tab-clients" onclick="staffTab('clients')">Clientes</button>
     <button class="nav-pill"        id="tab-bdays"   onclick="staffTab('bdays')">🎂</button>
+    <button class="nav-pill"        id="tab-giftcards" onclick="staffTab('giftcards')">🎁</button>
     <button class="nav-pill"        id="tab-config"  onclick="staffTab('config')">Config</button>
   </div>
 
@@ -277,7 +295,7 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
   <div id="staff-scan" style="width:100%;max-width:400px;display:flex;flex-direction:column;align-items:center">
     <div class="card" style="width:100%;text-align:center">
       <div class="sec-lbl" style="text-align:left">Escanear QR del cliente</div>
-      <div id="scanner-container"><div id="qr-reader" style="width:100%"></div></div>
+      <div class="scanner-container"><div id="qr-reader" style="width:100%"></div></div>
       <div id="scan-result" style="font-size:.82rem;color:var(--muted);margin-top:8px;min-height:1.4em;font-weight:200"></div>
       <button class="btn btn-primary" id="btn-start-scan" onclick="startScanner()">Activar cámara</button>
       <button class="btn btn-secondary" id="btn-stop-scan" onclick="stopScanner()" style="display:none">Detener cámara</button>
@@ -323,6 +341,85 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
     <div style="width:100%;max-width:400px;margin-top:18px">
       <div class="sec-lbl">Próximos cumpleaños</div>
       <div id="bday-upcoming" style="width:100%"></div>
+    </div>
+  </div>
+
+  <!-- Gift Cards -->
+  <div id="staff-giftcards" style="width:100%;display:none;flex-direction:column;align-items:center">
+    <div class="gc-sub-nav">
+      <button class="gc-sub-pill active" id="gc-tab-gen"    onclick="gcTab('gen')">Generar</button>
+      <button class="gc-sub-pill"        id="gc-tab-redeem" onclick="gcTab('redeem')">Canjear</button>
+      <button class="gc-sub-pill"        id="gc-tab-list"   onclick="gcTab('list')">Historial</button>
+    </div>
+
+    <!-- Generar -->
+    <div id="gc-gen" style="width:100%;max-width:400px">
+      <div class="card">
+        <div class="sec-lbl">Nueva gift card</div>
+        <div class="field">
+          <label>Monto (Bs)</label>
+          <input id="gc-amount" type="number" min="1" step="1" placeholder="100"/>
+        </div>
+        <div class="field">
+          <label>Nota (opcional)</label>
+          <input id="gc-note" type="text" placeholder="Ej. Regalo cumpleaños Ana" maxlength="60"/>
+        </div>
+        <button class="btn btn-primary" onclick="createGiftCard()">Generar QR →</button>
+      </div>
+      <div class="card" id="gc-result" style="display:none">
+        <div class="sec-lbl">Gift card generada</div>
+        <div class="gc-code-display" id="gc-code-txt">—</div>
+        <div style="font-size:.78rem;color:var(--muted);font-weight:200;text-align:center;margin-top:2px" id="gc-amount-txt"></div>
+        <div class="qr-box">
+          <p>QR de la gift card</p>
+          <div id="gc-qr-canvas"></div>
+        </div>
+        <div style="font-size:.68rem;color:var(--muted);font-weight:200;text-align:center;margin-top:10px;line-height:1.5">
+          Descarga esta imagen e insértala en el arte de Illustrator. Es de un solo uso — una vez canjeada no puede volver a usarse.
+        </div>
+        <button class="btn btn-secondary" onclick="downloadGiftQR()">↓ Descargar PNG</button>
+        <button class="btn btn-secondary" onclick="resetGiftForm()">+ Generar otra</button>
+      </div>
+    </div>
+
+    <!-- Canjear -->
+    <div id="gc-redeem" style="width:100%;max-width:400px;display:none">
+      <div class="card" style="text-align:center">
+        <div class="sec-lbl" style="text-align:left">Escanear QR de la gift card</div>
+        <div class="scanner-container"><div id="gc-qr-reader" style="width:100%"></div></div>
+        <div id="gc-scan-result" style="font-size:.82rem;color:var(--muted);margin-top:8px;min-height:1.4em;font-weight:200"></div>
+        <button class="btn btn-primary" id="gc-btn-start-scan" onclick="startGCScanner()">Activar cámara</button>
+        <button class="btn btn-secondary" id="gc-btn-stop-scan" onclick="stopGCScanner()" style="display:none">Detener cámara</button>
+        <div class="field" style="margin-top:14px;text-align:left">
+          <label>O ingresa el código manualmente</label>
+          <input id="gc-manual-code" type="text" placeholder="MST-XXXXX" style="text-transform:uppercase"/>
+        </div>
+        <button class="btn btn-secondary" onclick="lookupGiftCardManual()">Buscar</button>
+      </div>
+      <div class="card" id="gc-found-card" style="display:none">
+        <div class="sec-lbl">Gift card encontrada</div>
+        <div class="gc-code-display" id="gc-found-code" style="font-size:1.2rem"></div>
+        <div style="font-size:.78rem;color:var(--muted);font-weight:200;text-align:center;margin-bottom:10px" id="gc-found-note"></div>
+        <div style="text-align:center;margin-bottom:14px">
+          <div style="font-size:2.2rem;color:var(--guindo);font-weight:200;line-height:1" id="gc-found-amount">0</div>
+          <div style="font-size:.72rem;color:var(--muted);font-weight:200">Bs. valor de la gift card</div>
+        </div>
+        <button class="btn btn-primary" id="gc-btn-redeem" onclick="redeemGiftCard()">Marcar como canjeada</button>
+        <button class="btn btn-secondary" onclick="clearGiftFound()">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- Historial -->
+    <div id="gc-list" style="width:100%;max-width:400px;display:none">
+      <div style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="sec-lbl" style="margin:0">Todas las gift cards</div>
+        <button onclick="loadGiftCards()"
+          style="background:var(--cream-dk);color:var(--guindo);border:none;border-radius:9px;
+          padding:7px 14px;font-family:var(--font);font-size:.75rem;cursor:pointer">↻ Actualizar</button>
+      </div>
+      <div class="client-list" id="giftcard-list">
+        <div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Cargando…</div>
+      </div>
     </div>
   </div>
 
@@ -701,17 +798,256 @@ async function doLogout(){
 
 // ── Tabs cajero ─────────────────────────────────────
 function staffTab(tab){
-  ['scan','clients','bdays','config'].forEach(t=>{
+  ['scan','clients','bdays','giftcards','config'].forEach(t=>{
     document.getElementById('staff-'+t).style.display='none';
     document.getElementById('tab-'+t).classList.remove('active');
   });
-  const flexTabs = ['clients','bdays'];
+  const flexTabs = ['clients','bdays','giftcards'];
   document.getElementById('staff-'+tab).style.display = flexTabs.includes(tab)?'flex':'block';
   document.getElementById('tab-'+tab).classList.add('active');
-  if(tab==='clients') loadClients();
-  if(tab==='bdays')   loadBdays();
-  if(tab==='config')  showConfig();
-  if(tab!=='scan')    stopScanner();
+  if(tab==='clients')    loadClients();
+  if(tab==='bdays')      loadBdays();
+  if(tab==='config')     showConfig();
+  if(tab==='giftcards')  gcTab('gen');
+  if(tab!=='scan')       stopScanner();
+  if(tab!=='giftcards')  stopGCScanner();
+}
+
+// ── Sub-tabs Gift Cards ──────────────────────────────
+function gcTab(tab){
+  ['gen','redeem','list'].forEach(t=>{
+    document.getElementById('gc-'+t).style.display='none';
+    document.getElementById('gc-tab-'+t).classList.remove('active');
+  });
+  document.getElementById('gc-'+tab).style.display='block';
+  document.getElementById('gc-tab-'+tab).classList.add('active');
+  if(tab==='list') loadGiftCards();
+  if(tab!=='redeem') stopGCScanner();
+}
+
+// ── Generar gift cards ───────────────────────────────
+const GC_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // sin 0,O,1,I,L (evita confusión visual)
+
+function randomGCCode(){
+  let s='';
+  for(let i=0;i<5;i++) s += GC_CHARS[Math.floor(Math.random()*GC_CHARS.length)];
+  return 'MST-'+s;
+}
+
+async function generateUniqueGCCode(){
+  for(let i=0;i<12;i++){
+    const code = randomGCCode();
+    const ref  = fb().doc(fb().db,'giftcards',code);
+    const snap = await fb().getDoc(ref);
+    if(!snap.exists()) return code;
+  }
+  throw new Error('No se pudo generar un código único, intenta de nuevo.');
+}
+
+let lastGCCode  = null;
+let gcQrInstance = null;
+
+async function createGiftCard(){
+  const amount = parseFloat(document.getElementById('gc-amount').value);
+  const note   = document.getElementById('gc-note').value.trim();
+  if(!amount||amount<=0){ toast('Ingresa un monto válido'); return; }
+  if(!fb()||!fb().currentUser){ toast('Sesión expirada. Vuelve a iniciar sesión.'); return; }
+
+  const btn = document.querySelector('#gc-gen .btn-primary');
+  btn.disabled=true; btn.textContent='Generando…';
+
+  try{
+    const code = await generateUniqueGCCode();
+    const ref  = fb().doc(fb().db,'giftcards',code);
+    await fb().setDoc(ref,{
+      code, amount, status:'activa', note: note||'',
+      createdAt: fb().serverTimestamp(),
+      createdBy: fb().currentUser.email,
+      redeemedAt: null, redeemedBy: null
+    });
+    lastGCCode = code;
+    document.getElementById('gc-code-txt').textContent   = code;
+    document.getElementById('gc-amount-txt').textContent = `Bs. ${amount.toFixed(2)}`;
+    document.getElementById('gc-result').style.display='block';
+    renderGiftQR(code);
+    toast('✓ Gift card generada');
+  }catch(e){
+    console.error('Error generando gift card:', e);
+    toast('Error al generar ('+(e.code||e.message)+')');
+  }finally{
+    btn.disabled=false; btn.textContent='Generar QR →';
+  }
+}
+
+function renderGiftQR(code){
+  const qrDiv=document.getElementById('gc-qr-canvas');
+  qrDiv.innerHTML='';
+  if(gcQrInstance){ try{gcQrInstance.clear();}catch(e){} }
+  try{
+    gcQrInstance=new QRCode(qrDiv,{
+      text:code,width:200,height:200,
+      colorDark:'#5C2B3E',colorLight:'#ffffff',
+      correctLevel:QRCode.CorrectLevel.M
+    });
+  }catch(e){qrDiv.textContent=code;}
+}
+
+function downloadGiftQR(){
+  if(!lastGCCode){ toast('Genera una gift card primero'); return; }
+  const qrDiv  = document.getElementById('gc-qr-canvas');
+  const canvas = qrDiv.querySelector('canvas');
+  if(!canvas){ toast('No se pudo generar la imagen'); return; }
+  const link = document.createElement('a');
+  link.download = 'giftcard-'+lastGCCode+'.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+function resetGiftForm(){
+  document.getElementById('gc-amount').value='';
+  document.getElementById('gc-note').value='';
+  document.getElementById('gc-result').style.display='none';
+  lastGCCode=null;
+}
+
+// ── Canjear gift cards ───────────────────────────────
+let foundGiftCard    = null;
+let gcHtml5Scanner   = null;
+let gcScannerRunning = false;
+
+function startGCScanner(){
+  if(gcScannerRunning) return;
+  document.getElementById('gc-btn-start-scan').style.display='none';
+  document.getElementById('gc-btn-stop-scan').style.display='block';
+  document.getElementById('gc-scan-result').textContent='Apunta al QR de la gift card…';
+  gcHtml5Scanner=new Html5Qrcode('gc-qr-reader');
+  gcHtml5Scanner.start(
+    {facingMode:'environment'},{fps:10,qrbox:{width:200,height:200}},
+    onGCScan,()=>{}
+  ).then(()=>{gcScannerRunning=true;})
+   .catch(()=>{toast('Error al acceder a la cámara');resetGCScanUI();});
+}
+
+function stopGCScanner(){
+  if(!gcScannerRunning||!gcHtml5Scanner) return;
+  gcHtml5Scanner.stop().then(()=>{gcHtml5Scanner.clear();gcScannerRunning=false;resetGCScanUI();})
+    .catch(()=>{gcScannerRunning=false;resetGCScanUI();});
+}
+
+function resetGCScanUI(){
+  document.getElementById('gc-btn-start-scan').style.display='block';
+  document.getElementById('gc-btn-stop-scan').style.display='none';
+  document.getElementById('gc-scan-result').textContent='';
+}
+
+async function onGCScan(text){
+  stopGCScanner();
+  await lookupGiftCard(text.trim().toUpperCase());
+}
+
+async function lookupGiftCardManual(){
+  const code = document.getElementById('gc-manual-code').value.trim().toUpperCase();
+  if(!code){ toast('Ingresa un código'); return; }
+  await lookupGiftCard(code);
+}
+
+async function lookupGiftCard(code){
+  document.getElementById('gc-scan-result').textContent='Buscando…';
+  try{
+    const ref  = fb().doc(fb().db,'giftcards',code);
+    const snap = await fb().getDoc(ref);
+    if(!snap.exists()){
+      document.getElementById('gc-scan-result').textContent='Código no encontrado: '+code;
+      return;
+    }
+    const data = snap.data();
+    if(data.status==='usada'){
+      document.getElementById('gc-scan-result').textContent='⚠ Esta gift card ya fue canjeada'+
+        (data.redeemedAt? ' el '+new Date(data.redeemedAt.seconds*1000).toLocaleDateString('es') : '');
+      return;
+    }
+    foundGiftCard = {id:code,...data};
+    showGiftFound();
+  }catch(e){
+    console.error('Error buscando gift card:', e);
+    document.getElementById('gc-scan-result').textContent='Error de conexión';
+  }
+}
+
+function showGiftFound(){
+  document.getElementById('gc-scan-result').textContent='';
+  document.getElementById('gc-found-code').textContent   = foundGiftCard.code;
+  document.getElementById('gc-found-note').textContent   = foundGiftCard.note||'';
+  document.getElementById('gc-found-amount').textContent = (+foundGiftCard.amount).toFixed(2);
+  document.getElementById('gc-found-card').style.display='block';
+}
+
+function clearGiftFound(){
+  foundGiftCard=null;
+  document.getElementById('gc-found-card').style.display='none';
+  document.getElementById('gc-manual-code').value='';
+}
+
+async function redeemGiftCard(){
+  if(!foundGiftCard) return;
+  if(!fb()||!fb().currentUser){ toast('Sesión expirada. Vuelve a iniciar sesión.'); return; }
+  if(!confirm(`¿Confirmar canje de ${foundGiftCard.code} por Bs. ${(+foundGiftCard.amount).toFixed(2)}?\nUna vez canjeada, no podrá volver a usarse.`)) return;
+
+  const btn = document.getElementById('gc-btn-redeem');
+  btn.disabled=true; btn.textContent='Canjeando…';
+
+  try{
+    const ref = fb().doc(fb().db,'giftcards',foundGiftCard.id);
+    await fb().runTransaction(fb().db, async (tx)=>{
+      const snap = await tx.get(ref);
+      if(!snap.exists()) throw new Error('La gift card ya no existe');
+      const data = snap.data();
+      if(data.status==='usada') throw new Error('Esta gift card ya fue canjeada');
+      tx.update(ref, {
+        status:'usada',
+        redeemedAt: fb().serverTimestamp(),
+        redeemedBy: fb().currentUser.email
+      });
+    });
+    toast(`✓ Gift card ${foundGiftCard.code} canjeada — Bs. ${(+foundGiftCard.amount).toFixed(2)}`);
+    clearGiftFound();
+  }catch(e){
+    console.error('Error canjeando gift card:', e);
+    toast('Error: '+e.message);
+  }finally{
+    btn.disabled=false; btn.textContent='Marcar como canjeada';
+  }
+}
+
+// ── Historial gift cards ─────────────────────────────
+async function loadGiftCards(){
+  const list=document.getElementById('giftcard-list');
+  list.innerHTML='<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Cargando…</div>';
+  if(!fb()){ list.innerHTML='<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Sin conexión</div>'; return; }
+  try{
+    const ref  = fb().collection(fb().db,'giftcards');
+    const snap = await fb().getDocs(ref);
+    const cards = snap.docs.map(d=>({id:d.id,...d.data()}));
+    if(!cards.length){
+      list.innerHTML='<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Aún no hay gift cards</div>';
+      return;
+    }
+    cards.sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+    list.innerHTML = cards.map(c=>`
+      <div class="client-item">
+        <div>
+          <div class="ci-name">${c.code}</div>
+          <div class="ci-phone">${c.note||'Sin nota'}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="ci-num" style="font-size:1.2rem">${(+c.amount).toFixed(0)}<span style="font-size:.6rem"> Bs</span></div>
+          <div class="gc-status-badge gc-status-${c.status==='usada'?'usada':'activa'}">${c.status==='usada'?'Usada':'Activa'}</div>
+        </div>
+      </div>`).join('');
+  }catch(e){
+    console.error('Error cargando gift cards:', e);
+    list.innerHTML='<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Error al cargar</div>';
+  }
 }
 
 // ── Escáner ─────────────────────────────────────────
