@@ -11,7 +11,7 @@
 <script type="module">
   import { initializeApp }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js';
-  import { getFirestore, doc, getDoc, setDoc, collection, getDocs, serverTimestamp, runTransaction }
+  import { getFirestore, doc, getDoc, setDoc, addDoc, collection, getDocs, serverTimestamp, writeBatch }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
   import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
@@ -26,9 +26,6 @@
   //     match /config/{docId} {
   //       allow read: if true;
   //       allow write: if request.auth != null;
-  //     }
-  //     match /giftcards/{code} {
-  //       allow read, write: if request.auth != null;
   //     }
   //   }
   // }
@@ -51,7 +48,7 @@
     window._fb = {
       db, auth,
       currentUser: null, // se actualiza automáticamente
-      doc, getDoc, setDoc, collection, getDocs, serverTimestamp, runTransaction,
+      doc, getDoc, setDoc, addDoc, collection, getDocs, serverTimestamp, writeBatch,
       signInWithEmailAndPassword, signOut, onAuthStateChanged
     };
 
@@ -189,22 +186,8 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
 .err-msg{font-size:.75rem;color:#8b2020;text-align:center;min-height:1.2em;
   margin-top:4px;font-weight:200}
 
-.scanner-container{width:100%;max-width:320px;border-radius:14px;overflow:hidden;
+#scanner-container{width:100%;max-width:320px;border-radius:14px;overflow:hidden;
   background:#000;margin:14px 0;min-height:240px}
-#gc-qr-canvas,#gc-qr-canvas img,#gc-qr-canvas canvas{width:200px!important;height:200px!important}
-.gc-sub-nav{display:flex;gap:5px;background:rgba(92,43,62,.06);border-radius:99px;
-  padding:4px;margin-bottom:16px;width:100%;max-width:400px}
-.gc-sub-pill{flex:1;padding:8px 10px;border-radius:99px;border:none;font-family:var(--font);
-  font-size:.68rem;font-weight:200;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;
-  transition:background .2s,color .2s;color:var(--muted);background:transparent;
-  -webkit-tap-highlight-color:transparent}
-.gc-sub-pill.active{background:var(--guindo);color:var(--cream)}
-.gc-code-display{font-size:1.5rem;color:var(--guindo);font-weight:400;letter-spacing:.08em;
-  text-align:center;margin-top:4px}
-.gc-status-badge{display:inline-block;font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;
-  padding:3px 9px;border-radius:99px;font-weight:400}
-.gc-status-activa{background:#e6f0e8;color:#2a6b3d}
-.gc-status-usada{background:var(--cream-dk);color:var(--muted)}
 </style>
 </head>
 <body>
@@ -229,8 +212,147 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
     </div>
     <div class="field">
       <label>Fecha de cumpleaños</label>
-      <input id="reg-bday" type="date" style="color:var(--guindo-dk)"/>
-      <div style="font-size:.65rem;color:var(--muted);font-weight:200;margin-top:4px">
+      <div style="display:grid;grid-template-columns:1fr 1.6fr 1fr;gap:8px;margin-top:2px">
+        <select id="reg-bday-d" style="border:1.5px solid var(--cream-dk);border-radius:10px;
+          padding:11px 8px;font-family:var(--font);font-size:.85rem;color:var(--guindo-dk);
+          background:#fff;outline:none;-webkit-appearance:none;appearance:none;
+          text-align:center;cursor:pointer">
+          <option value="">Día</option>
+          <option value="01">1</option>
+          <option value="02">2</option>
+          <option value="03">3</option>
+          <option value="04">4</option>
+          <option value="05">5</option>
+          <option value="06">6</option>
+          <option value="07">7</option>
+          <option value="08">8</option>
+          <option value="09">9</option>
+          <option value="10">10</option>
+          <option value="11">11</option>
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+          <option value="15">15</option>
+          <option value="16">16</option>
+          <option value="17">17</option>
+          <option value="18">18</option>
+          <option value="19">19</option>
+          <option value="20">20</option>
+          <option value="21">21</option>
+          <option value="22">22</option>
+          <option value="23">23</option>
+          <option value="24">24</option>
+          <option value="25">25</option>
+          <option value="26">26</option>
+          <option value="27">27</option>
+          <option value="28">28</option>
+          <option value="29">29</option>
+          <option value="30">30</option>
+          <option value="31">31</option>
+        </select>
+        <select id="reg-bday-m" style="border:1.5px solid var(--cream-dk);border-radius:10px;
+          padding:11px 8px;font-family:var(--font);font-size:.85rem;color:var(--guindo-dk);
+          background:#fff;outline:none;-webkit-appearance:none;appearance:none;
+          text-align:center;cursor:pointer">
+          <option value="">Mes</option>
+          <option value="01">Enero</option>
+          <option value="02">Febrero</option>
+          <option value="03">Marzo</option>
+          <option value="04">Abril</option>
+          <option value="05">Mayo</option>
+          <option value="06">Junio</option>
+          <option value="07">Julio</option>
+          <option value="08">Agosto</option>
+          <option value="09">Septiembre</option>
+          <option value="10">Octubre</option>
+          <option value="11">Noviembre</option>
+          <option value="12">Diciembre</option>
+        </select>
+        <select id="reg-bday-y" style="border:1.5px solid var(--cream-dk);border-radius:10px;
+          padding:11px 8px;font-family:var(--font);font-size:.85rem;color:var(--guindo-dk);
+          background:#fff;outline:none;-webkit-appearance:none;appearance:none;
+          text-align:center;cursor:pointer">
+          <option value="">Año</option>
+          <option value="2016">2016</option>
+          <option value="2015">2015</option>
+          <option value="2014">2014</option>
+          <option value="2013">2013</option>
+          <option value="2012">2012</option>
+          <option value="2011">2011</option>
+          <option value="2010">2010</option>
+          <option value="2009">2009</option>
+          <option value="2008">2008</option>
+          <option value="2007">2007</option>
+          <option value="2006">2006</option>
+          <option value="2005">2005</option>
+          <option value="2004">2004</option>
+          <option value="2003">2003</option>
+          <option value="2002">2002</option>
+          <option value="2001">2001</option>
+          <option value="2000">2000</option>
+          <option value="1999">1999</option>
+          <option value="1998">1998</option>
+          <option value="1997">1997</option>
+          <option value="1996">1996</option>
+          <option value="1995">1995</option>
+          <option value="1994">1994</option>
+          <option value="1993">1993</option>
+          <option value="1992">1992</option>
+          <option value="1991">1991</option>
+          <option value="1990">1990</option>
+          <option value="1989">1989</option>
+          <option value="1988">1988</option>
+          <option value="1987">1987</option>
+          <option value="1986">1986</option>
+          <option value="1985">1985</option>
+          <option value="1984">1984</option>
+          <option value="1983">1983</option>
+          <option value="1982">1982</option>
+          <option value="1981">1981</option>
+          <option value="1980">1980</option>
+          <option value="1979">1979</option>
+          <option value="1978">1978</option>
+          <option value="1977">1977</option>
+          <option value="1976">1976</option>
+          <option value="1975">1975</option>
+          <option value="1974">1974</option>
+          <option value="1973">1973</option>
+          <option value="1972">1972</option>
+          <option value="1971">1971</option>
+          <option value="1970">1970</option>
+          <option value="1969">1969</option>
+          <option value="1968">1968</option>
+          <option value="1967">1967</option>
+          <option value="1966">1966</option>
+          <option value="1965">1965</option>
+          <option value="1964">1964</option>
+          <option value="1963">1963</option>
+          <option value="1962">1962</option>
+          <option value="1961">1961</option>
+          <option value="1960">1960</option>
+          <option value="1959">1959</option>
+          <option value="1958">1958</option>
+          <option value="1957">1957</option>
+          <option value="1956">1956</option>
+          <option value="1955">1955</option>
+          <option value="1954">1954</option>
+          <option value="1953">1953</option>
+          <option value="1952">1952</option>
+          <option value="1951">1951</option>
+          <option value="1950">1950</option>
+          <option value="1949">1949</option>
+          <option value="1948">1948</option>
+          <option value="1947">1947</option>
+          <option value="1946">1946</option>
+          <option value="1945">1945</option>
+          <option value="1944">1944</option>
+          <option value="1943">1943</option>
+          <option value="1942">1942</option>
+          <option value="1941">1941</option>
+          <option value="1940">1940</option>
+        </select>
+      </div>
+      <div style="font-size:.65rem;color:var(--muted);font-weight:200;margin-top:6px">
         Para celebrar contigo ese día especial
       </div>
     </div>
@@ -287,7 +409,6 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
     <button class="nav-pill active" id="tab-scan"    onclick="staffTab('scan')">Escanear</button>
     <button class="nav-pill"        id="tab-clients" onclick="staffTab('clients')">Clientes</button>
     <button class="nav-pill"        id="tab-bdays"   onclick="staffTab('bdays')">🎂</button>
-    <button class="nav-pill"        id="tab-giftcards" onclick="staffTab('giftcards')">🎁</button>
     <button class="nav-pill"        id="tab-config"  onclick="staffTab('config')">Config</button>
   </div>
 
@@ -295,7 +416,7 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
   <div id="staff-scan" style="width:100%;max-width:400px;display:flex;flex-direction:column;align-items:center">
     <div class="card" style="width:100%;text-align:center">
       <div class="sec-lbl" style="text-align:left">Escanear QR del cliente</div>
-      <div class="scanner-container"><div id="qr-reader" style="width:100%"></div></div>
+      <div id="scanner-container"><div id="qr-reader" style="width:100%"></div></div>
       <div id="scan-result" style="font-size:.82rem;color:var(--muted);margin-top:8px;min-height:1.4em;font-weight:200"></div>
       <button class="btn btn-primary" id="btn-start-scan" onclick="startScanner()">Activar cámara</button>
       <button class="btn btn-secondary" id="btn-stop-scan" onclick="stopScanner()" style="display:none">Detener cámara</button>
@@ -341,85 +462,6 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
     <div style="width:100%;max-width:400px;margin-top:18px">
       <div class="sec-lbl">Próximos cumpleaños</div>
       <div id="bday-upcoming" style="width:100%"></div>
-    </div>
-  </div>
-
-  <!-- Gift Cards -->
-  <div id="staff-giftcards" style="width:100%;display:none;flex-direction:column;align-items:center">
-    <div class="gc-sub-nav">
-      <button class="gc-sub-pill active" id="gc-tab-gen"    onclick="gcTab('gen')">Generar</button>
-      <button class="gc-sub-pill"        id="gc-tab-redeem" onclick="gcTab('redeem')">Canjear</button>
-      <button class="gc-sub-pill"        id="gc-tab-list"   onclick="gcTab('list')">Historial</button>
-    </div>
-
-    <!-- Generar -->
-    <div id="gc-gen" style="width:100%;max-width:400px">
-      <div class="card">
-        <div class="sec-lbl">Nueva gift card</div>
-        <div class="field">
-          <label>Monto (Bs)</label>
-          <input id="gc-amount" type="number" min="1" step="1" placeholder="100"/>
-        </div>
-        <div class="field">
-          <label>Nota (opcional)</label>
-          <input id="gc-note" type="text" placeholder="Ej. Regalo cumpleaños Ana" maxlength="60"/>
-        </div>
-        <button class="btn btn-primary" onclick="createGiftCard()">Generar QR →</button>
-      </div>
-      <div class="card" id="gc-result" style="display:none">
-        <div class="sec-lbl">Gift card generada</div>
-        <div class="gc-code-display" id="gc-code-txt">—</div>
-        <div style="font-size:.78rem;color:var(--muted);font-weight:200;text-align:center;margin-top:2px" id="gc-amount-txt"></div>
-        <div class="qr-box">
-          <p>QR de la gift card</p>
-          <div id="gc-qr-canvas"></div>
-        </div>
-        <div style="font-size:.68rem;color:var(--muted);font-weight:200;text-align:center;margin-top:10px;line-height:1.5">
-          Descarga esta imagen e insértala en el arte de Illustrator. Es de un solo uso — una vez canjeada no puede volver a usarse.
-        </div>
-        <button class="btn btn-secondary" onclick="downloadGiftQR()">↓ Descargar PNG</button>
-        <button class="btn btn-secondary" onclick="resetGiftForm()">+ Generar otra</button>
-      </div>
-    </div>
-
-    <!-- Canjear -->
-    <div id="gc-redeem" style="width:100%;max-width:400px;display:none">
-      <div class="card" style="text-align:center">
-        <div class="sec-lbl" style="text-align:left">Escanear QR de la gift card</div>
-        <div class="scanner-container"><div id="gc-qr-reader" style="width:100%"></div></div>
-        <div id="gc-scan-result" style="font-size:.82rem;color:var(--muted);margin-top:8px;min-height:1.4em;font-weight:200"></div>
-        <button class="btn btn-primary" id="gc-btn-start-scan" onclick="startGCScanner()">Activar cámara</button>
-        <button class="btn btn-secondary" id="gc-btn-stop-scan" onclick="stopGCScanner()" style="display:none">Detener cámara</button>
-        <div class="field" style="margin-top:14px;text-align:left">
-          <label>O ingresa el código manualmente</label>
-          <input id="gc-manual-code" type="text" placeholder="MST-XXXXX" style="text-transform:uppercase"/>
-        </div>
-        <button class="btn btn-secondary" onclick="lookupGiftCardManual()">Buscar</button>
-      </div>
-      <div class="card" id="gc-found-card" style="display:none">
-        <div class="sec-lbl">Gift card encontrada</div>
-        <div class="gc-code-display" id="gc-found-code" style="font-size:1.2rem"></div>
-        <div style="font-size:.78rem;color:var(--muted);font-weight:200;text-align:center;margin-bottom:10px" id="gc-found-note"></div>
-        <div style="text-align:center;margin-bottom:14px">
-          <div style="font-size:2.2rem;color:var(--guindo);font-weight:200;line-height:1" id="gc-found-amount">0</div>
-          <div style="font-size:.72rem;color:var(--muted);font-weight:200">Bs. valor de la gift card</div>
-        </div>
-        <button class="btn btn-primary" id="gc-btn-redeem" onclick="redeemGiftCard()">Marcar como canjeada</button>
-        <button class="btn btn-secondary" onclick="clearGiftFound()">Cancelar</button>
-      </div>
-    </div>
-
-    <!-- Historial -->
-    <div id="gc-list" style="width:100%;max-width:400px;display:none">
-      <div style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div class="sec-lbl" style="margin:0">Todas las gift cards</div>
-        <button onclick="loadGiftCards()"
-          style="background:var(--cream-dk);color:var(--guindo);border:none;border-radius:9px;
-          padding:7px 14px;font-family:var(--font);font-size:.75rem;cursor:pointer">↻ Actualizar</button>
-      </div>
-      <div class="client-list" id="giftcard-list">
-        <div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Cargando…</div>
-      </div>
     </div>
   </div>
 
@@ -598,11 +640,26 @@ async function getClient(phone){
 
 async function saveClient(c){
   const key = c.id || c.phone.replace(/\D/g,'');
-  const data = {name:c.name,phone:c.phone,stamps:c.stamps,since:c.since,bday:c.bday||''};
+  // Campos base — compatibles con clientes existentes
+  const data = {
+    name:   c.name,
+    phone:  c.phone,
+    stamps: c.stamps,
+    since:  c.since,
+    bday:   c.bday||'',
+    updated: fb() ? fb().serverTimestamp() : new Date().toISOString()
+  };
+  // Campos de memoria — solo se incluyen si existen en el objeto
+  // Nunca sobreescriben con undefined ni borran valores existentes
+  if(c.firstVisit  !== undefined) data.firstVisit  = c.firstVisit;
+  if(c.lastVisit   !== undefined) data.lastVisit   = c.lastVisit;
+  if(c.totalVisits !== undefined) data.totalVisits = c.totalVisits;
+  if(c.cyclesCompleted !== undefined) data.cyclesCompleted = c.cyclesCompleted;
+
   if(fb()){
     try {
       const ref = fb().doc(fb().db, 'clients', key);
-      await fb().setDoc(ref, {...data, updated:fb().serverTimestamp()}, {merge:true});
+      await fb().setDoc(ref, data, {merge:true});
     } catch(e) {
       console.error('Error guardando cliente:', e.code, e.message);
       if(e.code==='permission-denied'){
@@ -611,7 +668,7 @@ async function saveClient(c){
       throw e;
     }
   } else {
-    const all=LS.clients(); all[key]=data; LS.save(all);
+    const all=LS.clients(); all[key]={...data}; LS.save(all);
   }
   return {id:key,...data};
 }
@@ -656,7 +713,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 async function registerClient(){
   const name  = document.getElementById('reg-name').value.trim();
   const phone = document.getElementById('reg-phone').value.trim();
-  const bday  = document.getElementById('reg-bday').value;
+  // Leer los 3 selectores de cumpleaños
+  const bdayD = document.getElementById('reg-bday-d').value;
+  const bdayM = document.getElementById('reg-bday-m').value;
+  const bdayY = document.getElementById('reg-bday-y').value;
+  // Solo construir la fecha si los 3 campos están completos
+  const bday = (bdayD && bdayM && bdayY) ? `\${bdayY}-\${bdayM}-\${bdayD}` : '';
   if(!name||!phone){ toast('Completa nombre y teléfono'); return; }
   const key = phone.replace(/\D/g,'');
   if(key.length<7){ toast('Teléfono inválido'); return; }
@@ -668,7 +730,16 @@ async function registerClient(){
     let c = await getClient(phone);
     if(!c){
       const since = new Date().toLocaleDateString('es',{year:'numeric',month:'long'});
-      c = await saveClient({id:key,name,phone,stamps:0,since,bday:bday||''});
+      // firstVisit = momento del registro
+      // totalVisits = 0 (ningún sello/consumo real todavía)
+      // lastVisit   = no se asigna aquí (solo se asigna cuando hay sello real)
+      // cyclesCompleted = 0
+      c = await saveClient({
+        id:key, name, phone, stamps:0, since, bday:bday||'',
+        firstVisit:   fb() ? fb().serverTimestamp() : new Date().toISOString(),
+        totalVisits:  0,
+        cyclesCompleted: 0
+      });
     } else if(bday && !c.bday){
       c.bday = bday;
       c = await saveClient(c);
@@ -798,256 +869,17 @@ async function doLogout(){
 
 // ── Tabs cajero ─────────────────────────────────────
 function staffTab(tab){
-  ['scan','clients','bdays','giftcards','config'].forEach(t=>{
+  ['scan','clients','bdays','config'].forEach(t=>{
     document.getElementById('staff-'+t).style.display='none';
     document.getElementById('tab-'+t).classList.remove('active');
   });
-  const flexTabs = ['clients','bdays','giftcards'];
+  const flexTabs = ['clients','bdays'];
   document.getElementById('staff-'+tab).style.display = flexTabs.includes(tab)?'flex':'block';
   document.getElementById('tab-'+tab).classList.add('active');
-  if(tab==='clients')    loadClients();
-  if(tab==='bdays')      loadBdays();
-  if(tab==='config')     showConfig();
-  if(tab==='giftcards')  gcTab('gen');
-  if(tab!=='scan')       stopScanner();
-  if(tab!=='giftcards')  stopGCScanner();
-}
-
-// ── Sub-tabs Gift Cards ──────────────────────────────
-function gcTab(tab){
-  ['gen','redeem','list'].forEach(t=>{
-    document.getElementById('gc-'+t).style.display='none';
-    document.getElementById('gc-tab-'+t).classList.remove('active');
-  });
-  document.getElementById('gc-'+tab).style.display='block';
-  document.getElementById('gc-tab-'+tab).classList.add('active');
-  if(tab==='list') loadGiftCards();
-  if(tab!=='redeem') stopGCScanner();
-}
-
-// ── Generar gift cards ───────────────────────────────
-const GC_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // sin 0,O,1,I,L (evita confusión visual)
-
-function randomGCCode(){
-  let s='';
-  for(let i=0;i<5;i++) s += GC_CHARS[Math.floor(Math.random()*GC_CHARS.length)];
-  return 'MST-'+s;
-}
-
-async function generateUniqueGCCode(){
-  for(let i=0;i<12;i++){
-    const code = randomGCCode();
-    const ref  = fb().doc(fb().db,'giftcards',code);
-    const snap = await fb().getDoc(ref);
-    if(!snap.exists()) return code;
-  }
-  throw new Error('No se pudo generar un código único, intenta de nuevo.');
-}
-
-let lastGCCode  = null;
-let gcQrInstance = null;
-
-async function createGiftCard(){
-  const amount = parseFloat(document.getElementById('gc-amount').value);
-  const note   = document.getElementById('gc-note').value.trim();
-  if(!amount||amount<=0){ toast('Ingresa un monto válido'); return; }
-  if(!fb()||!fb().currentUser){ toast('Sesión expirada. Vuelve a iniciar sesión.'); return; }
-
-  const btn = document.querySelector('#gc-gen .btn-primary');
-  btn.disabled=true; btn.textContent='Generando…';
-
-  try{
-    const code = await generateUniqueGCCode();
-    const ref  = fb().doc(fb().db,'giftcards',code);
-    await fb().setDoc(ref,{
-      code, amount, status:'activa', note: note||'',
-      createdAt: fb().serverTimestamp(),
-      createdBy: fb().currentUser.email,
-      redeemedAt: null, redeemedBy: null
-    });
-    lastGCCode = code;
-    document.getElementById('gc-code-txt').textContent   = code;
-    document.getElementById('gc-amount-txt').textContent = `Bs. ${amount.toFixed(2)}`;
-    document.getElementById('gc-result').style.display='block';
-    renderGiftQR(code);
-    toast('✓ Gift card generada');
-  }catch(e){
-    console.error('Error generando gift card:', e);
-    toast('Error al generar ('+(e.code||e.message)+')');
-  }finally{
-    btn.disabled=false; btn.textContent='Generar QR →';
-  }
-}
-
-function renderGiftQR(code){
-  const qrDiv=document.getElementById('gc-qr-canvas');
-  qrDiv.innerHTML='';
-  if(gcQrInstance){ try{gcQrInstance.clear();}catch(e){} }
-  try{
-    gcQrInstance=new QRCode(qrDiv,{
-      text:code,width:200,height:200,
-      colorDark:'#5C2B3E',colorLight:'#ffffff',
-      correctLevel:QRCode.CorrectLevel.M
-    });
-  }catch(e){qrDiv.textContent=code;}
-}
-
-function downloadGiftQR(){
-  if(!lastGCCode){ toast('Genera una gift card primero'); return; }
-  const qrDiv  = document.getElementById('gc-qr-canvas');
-  const canvas = qrDiv.querySelector('canvas');
-  if(!canvas){ toast('No se pudo generar la imagen'); return; }
-  const link = document.createElement('a');
-  link.download = 'giftcard-'+lastGCCode+'.png';
-  link.href = canvas.toDataURL('image/png');
-  link.click();
-}
-
-function resetGiftForm(){
-  document.getElementById('gc-amount').value='';
-  document.getElementById('gc-note').value='';
-  document.getElementById('gc-result').style.display='none';
-  lastGCCode=null;
-}
-
-// ── Canjear gift cards ───────────────────────────────
-let foundGiftCard    = null;
-let gcHtml5Scanner   = null;
-let gcScannerRunning = false;
-
-function startGCScanner(){
-  if(gcScannerRunning) return;
-  document.getElementById('gc-btn-start-scan').style.display='none';
-  document.getElementById('gc-btn-stop-scan').style.display='block';
-  document.getElementById('gc-scan-result').textContent='Apunta al QR de la gift card…';
-  gcHtml5Scanner=new Html5Qrcode('gc-qr-reader');
-  gcHtml5Scanner.start(
-    {facingMode:'environment'},{fps:10,qrbox:{width:200,height:200}},
-    onGCScan,()=>{}
-  ).then(()=>{gcScannerRunning=true;})
-   .catch(()=>{toast('Error al acceder a la cámara');resetGCScanUI();});
-}
-
-function stopGCScanner(){
-  if(!gcScannerRunning||!gcHtml5Scanner) return;
-  gcHtml5Scanner.stop().then(()=>{gcHtml5Scanner.clear();gcScannerRunning=false;resetGCScanUI();})
-    .catch(()=>{gcScannerRunning=false;resetGCScanUI();});
-}
-
-function resetGCScanUI(){
-  document.getElementById('gc-btn-start-scan').style.display='block';
-  document.getElementById('gc-btn-stop-scan').style.display='none';
-  document.getElementById('gc-scan-result').textContent='';
-}
-
-async function onGCScan(text){
-  stopGCScanner();
-  await lookupGiftCard(text.trim().toUpperCase());
-}
-
-async function lookupGiftCardManual(){
-  const code = document.getElementById('gc-manual-code').value.trim().toUpperCase();
-  if(!code){ toast('Ingresa un código'); return; }
-  await lookupGiftCard(code);
-}
-
-async function lookupGiftCard(code){
-  document.getElementById('gc-scan-result').textContent='Buscando…';
-  try{
-    const ref  = fb().doc(fb().db,'giftcards',code);
-    const snap = await fb().getDoc(ref);
-    if(!snap.exists()){
-      document.getElementById('gc-scan-result').textContent='Código no encontrado: '+code;
-      return;
-    }
-    const data = snap.data();
-    if(data.status==='usada'){
-      document.getElementById('gc-scan-result').textContent='⚠ Esta gift card ya fue canjeada'+
-        (data.redeemedAt? ' el '+new Date(data.redeemedAt.seconds*1000).toLocaleDateString('es') : '');
-      return;
-    }
-    foundGiftCard = {id:code,...data};
-    showGiftFound();
-  }catch(e){
-    console.error('Error buscando gift card:', e);
-    document.getElementById('gc-scan-result').textContent='Error de conexión';
-  }
-}
-
-function showGiftFound(){
-  document.getElementById('gc-scan-result').textContent='';
-  document.getElementById('gc-found-code').textContent   = foundGiftCard.code;
-  document.getElementById('gc-found-note').textContent   = foundGiftCard.note||'';
-  document.getElementById('gc-found-amount').textContent = (+foundGiftCard.amount).toFixed(2);
-  document.getElementById('gc-found-card').style.display='block';
-}
-
-function clearGiftFound(){
-  foundGiftCard=null;
-  document.getElementById('gc-found-card').style.display='none';
-  document.getElementById('gc-manual-code').value='';
-}
-
-async function redeemGiftCard(){
-  if(!foundGiftCard) return;
-  if(!fb()||!fb().currentUser){ toast('Sesión expirada. Vuelve a iniciar sesión.'); return; }
-  if(!confirm(`¿Confirmar canje de ${foundGiftCard.code} por Bs. ${(+foundGiftCard.amount).toFixed(2)}?\nUna vez canjeada, no podrá volver a usarse.`)) return;
-
-  const btn = document.getElementById('gc-btn-redeem');
-  btn.disabled=true; btn.textContent='Canjeando…';
-
-  try{
-    const ref = fb().doc(fb().db,'giftcards',foundGiftCard.id);
-    await fb().runTransaction(fb().db, async (tx)=>{
-      const snap = await tx.get(ref);
-      if(!snap.exists()) throw new Error('La gift card ya no existe');
-      const data = snap.data();
-      if(data.status==='usada') throw new Error('Esta gift card ya fue canjeada');
-      tx.update(ref, {
-        status:'usada',
-        redeemedAt: fb().serverTimestamp(),
-        redeemedBy: fb().currentUser.email
-      });
-    });
-    toast(`✓ Gift card ${foundGiftCard.code} canjeada — Bs. ${(+foundGiftCard.amount).toFixed(2)}`);
-    clearGiftFound();
-  }catch(e){
-    console.error('Error canjeando gift card:', e);
-    toast('Error: '+e.message);
-  }finally{
-    btn.disabled=false; btn.textContent='Marcar como canjeada';
-  }
-}
-
-// ── Historial gift cards ─────────────────────────────
-async function loadGiftCards(){
-  const list=document.getElementById('giftcard-list');
-  list.innerHTML='<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Cargando…</div>';
-  if(!fb()){ list.innerHTML='<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Sin conexión</div>'; return; }
-  try{
-    const ref  = fb().collection(fb().db,'giftcards');
-    const snap = await fb().getDocs(ref);
-    const cards = snap.docs.map(d=>({id:d.id,...d.data()}));
-    if(!cards.length){
-      list.innerHTML='<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Aún no hay gift cards</div>';
-      return;
-    }
-    cards.sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-    list.innerHTML = cards.map(c=>`
-      <div class="client-item">
-        <div>
-          <div class="ci-name">${c.code}</div>
-          <div class="ci-phone">${c.note||'Sin nota'}</div>
-        </div>
-        <div style="text-align:right">
-          <div class="ci-num" style="font-size:1.2rem">${(+c.amount).toFixed(0)}<span style="font-size:.6rem"> Bs</span></div>
-          <div class="gc-status-badge gc-status-${c.status==='usada'?'usada':'activa'}">${c.status==='usada'?'Usada':'Activa'}</div>
-        </div>
-      </div>`).join('');
-  }catch(e){
-    console.error('Error cargando gift cards:', e);
-    list.innerHTML='<div style="color:rgba(242,235,229,.45);font-size:.82rem;text-align:center;padding:20px;font-weight:200">Error al cargar</div>';
-  }
+  if(tab==='clients') loadClients();
+  if(tab==='bdays')   loadBdays();
+  if(tab==='config')  showConfig();
+  if(tab!=='scan')    stopScanner();
 }
 
 // ── Escáner ─────────────────────────────────────────
@@ -1105,8 +937,71 @@ function clearFound(){
 
 async function addStamp(){
   if(!foundClient||foundClient.stamps>=cfg.goal) return;
-  foundClient.stamps++;
-  foundClient=await saveClient(foundClient);
+
+  const stampsBefore = foundClient.stamps;
+  const stampsAfter  = stampsBefore + 1;
+  const cycleAtVisit = foundClient.cyclesCompleted || 0;
+  const key          = foundClient.id || foundClient.phone.replace(/\D/g,'');
+
+  // Preparar campos actualizados
+  const updatedFields = {
+    stamps:      stampsAfter,
+    totalVisits: (foundClient.totalVisits || 0) + 1,
+    lastVisit:   fb().serverTimestamp(),
+  };
+
+  // Si es la primera visita real y no tiene firstVisit, asignarla ahora
+  if(!foundClient.firstVisit){
+    updatedFields.firstVisit = fb().serverTimestamp();
+  }
+
+  if(fb()){
+    try {
+      const batch       = fb().writeBatch(fb().db);
+      const clientRef   = fb().doc(fb().db, 'clients', key);
+      const visitsRef   = fb().collection(fb().db, 'visits');
+      const visitDocRef = fb().doc(visitsRef); // ID automático
+
+      // Operación 1: actualizar cliente
+      batch.set(clientRef, {
+        ...updatedFields,
+        updated: fb().serverTimestamp()
+      }, {merge:true});
+
+      // Operación 2: crear documento de visita
+      batch.set(visitDocRef, {
+        clientId:    key,
+        clientName:  foundClient.name,
+        date:        fb().serverTimestamp(),
+        stampsBefore,
+        stampsAfter,
+        cycleAtVisit
+      });
+
+      // Commit atómico — o ambas escrituras ocurren, o ninguna
+      await batch.commit();
+
+      // Actualizar objeto local con los nuevos valores
+      foundClient = {
+        ...foundClient,
+        stamps:      stampsAfter,
+        totalVisits: updatedFields.totalVisits,
+        lastVisit:   new Date(), // aproximación local
+        firstVisit:  foundClient.firstVisit || new Date()
+      };
+
+    } catch(e) {
+      console.error('Error en batch addStamp:', e.code, e.message);
+      toast('Error al registrar sello. Intenta de nuevo.');
+      return;
+    }
+  } else {
+    // Modo local sin Firebase
+    foundClient.stamps = stampsAfter;
+    foundClient.totalVisits = (foundClient.totalVisits||0)+1;
+    foundClient = await saveClient(foundClient);
+  }
+
   showFound();
   toast(`✓ Sello agregado — ${foundClient.name} (${foundClient.stamps}/${cfg.goal})`);
   if(currentClient?.id===foundClient.id) currentClient=foundClient;
