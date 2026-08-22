@@ -810,15 +810,23 @@ function renderCard(){
   const bdayRow = document.getElementById('card-bday-row');
   const bdayTxt = document.getElementById('card-bday-txt');
   if(currentClient.bday){
-    const [y,m,d] = currentClient.bday.split('-');
+    const parts = currentClient.bday.split('-');
+    // Formato esperado: YYYY-MM-DD → parts[0]=año, parts[1]=mes, parts[2]=día
+    const bdayYear  = parts[0] ? parseInt(parts[0]) : null;
+    const bdayMonth = parts[1] ? parseInt(parts[1]) : null;
+    const bdayDay   = parts[2] ? parseInt(parts[2]) : null;
     const months = ['enero','febrero','marzo','abril','mayo','junio',
                     'julio','agosto','septiembre','octubre','noviembre','diciembre'];
-    const today = new Date();
-    const isBday = parseInt(m)===today.getMonth()+1 && parseInt(d)===today.getDate();
-    bdayTxt.textContent = isBday
-      ? '¡Hoy es tu cumpleaños! 🎉 Feliz día de parte de Café Montesanto'
-      : 'Tu cumpleaños: '+parseInt(d)+' de '+months[parseInt(m)-1];
-    bdayRow.style.display='flex';
+    if(bdayMonth && bdayDay && bdayMonth >= 1 && bdayMonth <= 12 && bdayDay >= 1 && bdayDay <= 31){
+      const today  = new Date();
+      const isBday = bdayMonth === today.getMonth()+1 && bdayDay === today.getDate();
+      bdayTxt.textContent = isBday
+        ? '¡Hoy es tu cumpleaños! 🎉 Feliz día de parte de Café Montesanto'
+        : 'Tu cumpleaños: ' + bdayDay + ' de ' + months[bdayMonth - 1];
+      bdayRow.style.display='flex';
+    } else {
+      bdayRow.style.display='none';
+    }
   } else {
     bdayRow.style.display='none';
   }
@@ -959,8 +967,8 @@ async function addStamp(){
     try {
       const batch       = fb().writeBatch(fb().db);
       const clientRef   = fb().doc(fb().db, 'clients', key);
-      const visitsRef   = fb().collection(fb().db, 'visits');
-      const visitDocRef = fb().doc(visitsRef); // ID automático
+      // Para ID automático en batch: crear ref con colección + doc sin args
+      const visitDocRef = fb().doc(fb().collection(fb().db, 'visits'));
 
       // Operación 1: actualizar cliente
       batch.set(clientRef, {
