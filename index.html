@@ -11,7 +11,7 @@
 <script type="module">
   import { initializeApp }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js';
-  import { getFirestore, doc, getDoc, setDoc, collection, getDocs, serverTimestamp, runTransaction }
+  import { getFirestore, doc, getDoc, setDoc, addDoc, collection, getDocs, serverTimestamp, runTransaction, writeBatch }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
   import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
     from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
@@ -50,7 +50,7 @@
     window._fb = {
       db, auth,
       currentUser: null,
-      doc, getDoc, setDoc, collection, getDocs, serverTimestamp, runTransaction,
+      doc, getDoc, setDoc, addDoc, collection, getDocs, serverTimestamp, runTransaction, writeBatch,
       signInWithEmailAndPassword, signOut, onAuthStateChanged
     };
     onAuthStateChanged(auth, (user) => {
@@ -837,6 +837,11 @@ async function getClient(phone){
 async function saveClient(c){
   const key=c.id||c.phone.replace(/\D/g,'');
   const data={name:c.name,phone:c.phone,stamps:c.stamps,since:c.since,bday:c.bday||''};
+  // Campos de memoria — solo se incluyen si existen en el objeto
+  if(c.firstVisit     !== undefined) data.firstVisit     = c.firstVisit;
+  if(c.lastVisit      !== undefined) data.lastVisit      = c.lastVisit;
+  if(c.totalVisits    !== undefined) data.totalVisits    = c.totalVisits;
+  if(c.cyclesCompleted!== undefined) data.cyclesCompleted= c.cyclesCompleted;
   if(fb()){
     try{
       const ref=fb().doc(fb().db,'clients',key);
@@ -878,7 +883,16 @@ async function registerClient(){
     let c=await getClient(phone);
     if(!c){
       const since=new Date().toLocaleDateString('es',{year:'numeric',month:'long'});
-      c=await saveClient({id:key,name,phone,stamps:0,since,bday});
+      // firstVisit = momento del registro
+      // totalVisits = 0 (ningún sello real todavía)
+      // lastVisit   = no se asigna aquí — solo cuando hay sello real
+      // cyclesCompleted = 0
+      c=await saveClient({
+        id:key,name,phone,stamps:0,since,bday,
+        firstVisit:    fb() ? fb().serverTimestamp() : new Date().toISOString(),
+        totalVisits:   0,
+        cyclesCompleted: 0
+      });
     } else if(bday && !c.bday){
       c.bday=bday; c=await saveClient(c);
     }
@@ -1286,8 +1300,49 @@ async function saveClientEdits(){
 
 async function addStamp(){
   if(!foundClient||foundClient.stamps>=cfg.goal) return;
-  foundClient.stamps++;
-  foundClient=await saveClient(foundClient);
+
+  const stampsBefore   = foundClient.stamps;
+  const stampsAfter    = stampsBefore + 1;
+  const cycleAtVisit   = foundClient.cyclesCompleted || 0;
+  const newTotalVisits = (foundClient.totalVisits || 0) + 1;
+
+  // Actualizar campos en el objeto
+  foundClient.stamps       = stampsAfter;
+  foundClient.totalVisits  = newTotalVisits;
+  foundClient.lastVisit    = fb() ? fb().serverTimestamp() : new Date().toISOString();
+  if(!foundClient.firstVisit){
+    foundClient.firstVisit = fb() ? fb().serverTimestamp() : new Date().toISOString();
+  }
+
+  // Paso 1: guardar sello (prioridad máxima)
+  try{
+    foundClient = await saveClient(foundClient);
+  }catch(e){
+    toast('Error al registrar sello. Intenta de nuevo.');
+    // revertir local
+    foundClient.stamps      = stampsBefore;
+    foundClient.totalVisits = newTotalVisits - 1;
+    return;
+  }
+
+  // Paso 2: registrar visita en colección visits/ (secundario)
+  if(fb()){
+    try{
+      const key = foundClient.id || foundClient.phone.replace(/\D/g,'');
+      await fb().addDoc(fb().collection(fb().db,'visits'),{
+        clientId:    key,
+        clientName:  foundClient.name,
+        date:        fb().serverTimestamp(),
+        stampsBefore,
+        stampsAfter,
+        cycleAtVisit
+      });
+    }catch(ve){
+      // Sello ya guardado — la visita es secundaria, no interrumpir
+      console.warn('Visita no registrada (sello OK):', ve.message);
+    }
+  }
+
   showFound();
   toast('✓ Sello agregado — '+foundClient.name+' ('+foundClient.stamps+'/'+cfg.goal+')');
   if(currentClient && currentClient.id===foundClient.id) currentClient=foundClient;
