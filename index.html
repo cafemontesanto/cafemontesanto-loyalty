@@ -592,6 +592,32 @@ body{font-family:var(--font);font-weight:400;background:var(--guindo);
         </div>
       </div>
 
+      <!-- Panel recompensa -->
+      <div id="reward-panel" style="display:none;margin-top:14px;
+        background:var(--guindo);border-radius:14px;padding:18px 16px;text-align:center">
+        <div style="font-size:1.3rem;margin-bottom:6px">🎉</div>
+        <div style="font-size:.95rem;color:var(--cream);font-weight:400;margin-bottom:4px">
+          ¡<span id="reward-client-name"></span> completó su tarjeta!
+        </div>
+        <div style="font-size:.78rem;color:rgba(242,235,229,.7);font-weight:200;margin-bottom:16px">
+          Recompensa: <span id="reward-desc"></span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button id="reward-deliver-btn" onclick="deliverReward()"
+            style="flex:1;padding:11px;border-radius:10px;border:none;cursor:pointer;
+            background:var(--cream);color:var(--guindo);font-family:var(--font);
+            font-size:.85rem;font-weight:400">
+            Sí, entregar
+          </button>
+          <button onclick="laterReward()"
+            style="flex:1;padding:11px;border-radius:10px;border:none;cursor:pointer;
+            background:rgba(255,255,255,.15);color:var(--cream);font-family:var(--font);
+            font-size:.85rem;font-weight:200">
+            Más tarde
+          </button>
+        </div>
+      </div>
+
       <button class="btn btn-secondary" onclick="toggleEditPanel()"
         style="margin-top:10px;font-size:.76rem;letter-spacing:.06em;color:var(--muted)">
         ✏ Editar datos
@@ -1251,6 +1277,7 @@ function clearFound(){
   document.getElementById('found-card').style.display='none';
   document.getElementById('scan-result').textContent='';
   document.getElementById('edit-panel').style.display='none';
+  document.getElementById('reward-panel').style.display='none';
 }
 
 // ══ EDITAR DATOS — NUEVO ══════════════════════════════
@@ -1305,6 +1332,7 @@ async function addStamp(){
   const stampsAfter    = stampsBefore + 1;
   const cycleAtVisit   = foundClient.cyclesCompleted || 0;
   const newTotalVisits = (foundClient.totalVisits || 0) + 1;
+  const cycleComplete  = stampsAfter >= cfg.goal;
 
   // Actualizar campos en el objeto
   foundClient.stamps       = stampsAfter;
@@ -1319,13 +1347,12 @@ async function addStamp(){
     foundClient = await saveClient(foundClient);
   }catch(e){
     toast('Error al registrar sello. Intenta de nuevo.');
-    // revertir local
     foundClient.stamps      = stampsBefore;
     foundClient.totalVisits = newTotalVisits - 1;
     return;
   }
 
-  // Paso 2: registrar visita en colección visits/ (secundario)
+  // Paso 2: registrar visita en visits/
   if(fb()){
     try{
       const key = foundClient.id || foundClient.phone.replace(/\D/g,'');
@@ -1335,17 +1362,82 @@ async function addStamp(){
         date:        fb().serverTimestamp(),
         stampsBefore,
         stampsAfter,
-        cycleAtVisit
+        cycleAtVisit,
+        rewardRedeemed: false
       });
     }catch(ve){
-      // Sello ya guardado — la visita es secundaria, no interrumpir
       console.warn('Visita no registrada (sello OK):', ve.message);
     }
   }
 
   showFound();
-  toast('✓ Sello agregado — '+foundClient.name+' ('+foundClient.stamps+'/'+cfg.goal+')');
+
+  // Paso 3: si completó el ciclo, mostrar panel de recompensa
+  if(cycleComplete){
+    showRewardPanel();
+  } else {
+    toast('✓ Sello agregado — '+foundClient.name+' ('+foundClient.stamps+'/'+cfg.goal+')');
+  }
+
   if(currentClient && currentClient.id===foundClient.id) currentClient=foundClient;
+}
+
+function showRewardPanel(){
+  document.getElementById('reward-panel').style.display='block';
+  document.getElementById('reward-client-name').textContent = foundClient.name;
+  document.getElementById('reward-desc').textContent = cfg.reward;
+}
+
+async function deliverReward(){
+  if(!foundClient) return;
+  const btn = document.getElementById('reward-deliver-btn');
+  btn.disabled=true; btn.textContent='Procesando…';
+
+  const prevCycles = foundClient.cyclesCompleted || 0;
+  foundClient.stamps           = 0;
+  foundClient.cyclesCompleted  = prevCycles + 1;
+
+  try{
+    foundClient = await saveClient(foundClient);
+
+    // Registrar en visits/ que la recompensa fue entregada
+    if(fb()){
+      try{
+        const key = foundClient.id || foundClient.phone.replace(/\D/g,'');
+        await fb().addDoc(fb().collection(fb().db,'visits'),{
+          clientId:       key,
+          clientName:     foundClient.name,
+          date:           fb().serverTimestamp(),
+          stampsBefore:   cfg.goal,
+          stampsAfter:    0,
+          cycleAtVisit:   prevCycles,
+          rewardRedeemed: true,
+          rewardDesc:     cfg.reward
+        });
+      }catch(ve){
+        console.warn('Registro de recompensa no guardado:', ve.message);
+      }
+    }
+
+    hideRewardPanel();
+    showFound();
+    toast('🎉 Recompensa entregada — ciclo '+(prevCycles+1)+' completado');
+    if(currentClient && currentClient.id===foundClient.id) currentClient=foundClient;
+  }catch(e){
+    console.error('Error entregando recompensa:', e);
+    toast('Error al procesar. Intenta de nuevo.');
+  }finally{
+    btn.disabled=false; btn.textContent='Sí, entregar';
+  }
+}
+
+function laterReward(){
+  hideRewardPanel();
+  toast('Recompensa pendiente — tarjeta completa');
+}
+
+function hideRewardPanel(){
+  document.getElementById('reward-panel').style.display='none';
 }
 
 async function removeStamp(){
